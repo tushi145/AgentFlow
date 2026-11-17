@@ -36,6 +36,9 @@ class DemoLLMProvider:
     name = "demo"
     is_demo = True
 
+    def __init__(self) -> None:
+        from app.demo import templates  # noqa: F401  (registers builders)
+
     async def generate(self, request: LLMRequest[T]) -> LLMResult[T]:
         builder = _BUILDERS.get(request.output_model.__name__)
         if builder is None:

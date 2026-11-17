@@ -73,6 +73,8 @@ class PricingTable:
 
     def llm_cost(self, provider: str, model: str, usage: Usage) -> float | None:
         """USD cost, or None when pricing for this model is not configured (never guessed)."""
+        if usage.total == 0 and not usage.cache_read_tokens:
+            return 0.0
         p = self.price(provider, model)
         if p is None:
             return None
