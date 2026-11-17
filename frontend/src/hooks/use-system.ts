@@ -7,10 +7,10 @@ export function useSystemStatus() {
 }
 
 /** Real count of approvals awaiting a decision (polled; drives the top-bar indicator). */
-export function usePendingApprovals() {
+export function usePendingApprovals(refetchInterval = 15_000) {
   return useQuery({
     queryKey: ["approvals", "pending"],
     queryFn: () => api.listApprovals("pending"),
-    refetchInterval: 15_000,
+    refetchInterval,
   });
 }

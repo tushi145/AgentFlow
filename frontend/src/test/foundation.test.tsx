@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import { AppRoutes } from "@/App";
 import { ModeBadge, StatusBadge } from "@/components/status";
-import { formatCost, formatDuration, formatNumber, formatPercent } from "@/lib/format";
+import { durationBetween, formatCost, formatDuration, formatNumber, formatPercent, formatRelative, parseApiDate } from "@/lib/format";
 import { api, ApiError } from "@/services/api";
 
 import { renderWithProviders } from "./render";
@@ -56,6 +56,17 @@ describe("formatters never invent values", () => {
   });
 });
 
+describe("timestamps", () => {
+  it("treats API timestamps as UTC whether or not they carry an offset", () => {
+    expect(parseApiDate("2026-11-17T10:00:00").toISOString()).toBe("2026-11-17T10:00:00.000Z");
+    expect(parseApiDate("2026-11-17T10:00:00+00:00").toISOString()).toBe("2026-11-17T10:00:00.000Z");
+    expect(parseApiDate("2026-11-17T15:30:00+05:30").toISOString()).toBe("2026-11-17T10:00:00.000Z");
+    const now = Date.parse("2026-11-17T10:00:30Z");
+    expect(formatRelative("2026-11-17T10:00:00", now)).toBe("just now"); // not "5 hours ago"
+    expect(durationBetween("2026-11-17T10:00:00", null, now)).toBe(30);
+  });
+});
+
 describe("status components", () => {
   it("labels demo mode explicitly", () => {
     renderWithProviders(<><ModeBadge mode="demo" /><ModeBadge mode="live" /></>);
@@ -85,7 +96,7 @@ describe("app shell", () => {
     await userEvent.click(screen.getByRole("button", { name: "Sign in" }));
     expect(posted).toEqual({ username: "admin", password: "pw" });
     // returns to the originally requested page
-    expect(await screen.findByRole("heading", { name: "Execution History" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Execution history" })).toBeInTheDocument();
   });
 
   it("shows a login error from the API", async () => {

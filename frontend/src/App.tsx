@@ -1,4 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { Loader2 } from "lucide-react";
+import { lazy, Suspense } from "react";
 import { BrowserRouter, Route, Routes } from "react-router";
 import { Toaster } from "sonner";
 
@@ -8,6 +10,22 @@ import { AppLayout } from "@/layouts/AppLayout";
 import LoginPage from "@/pages/LoginPage";
 import { NotFoundPage, StagePlaceholder } from "@/pages/StagePlaceholder";
 import { ApiError } from "@/services/api";
+
+// Route-level code splitting: each page is its own chunk.
+const OverviewPage = lazy(() => import("@/pages/OverviewPage"));
+const NewTaskPage = lazy(() => import("@/pages/NewTaskPage"));
+const ActiveExecutionsPage = lazy(() => import("@/pages/ActiveExecutionsPage"));
+const HistoryPage = lazy(() => import("@/pages/HistoryPage"));
+
+function PageFallback() {
+  return (
+    <div className="flex justify-center py-24" aria-busy="true">
+      <Loader2 className="size-5 animate-spin text-muted-foreground" />
+    </div>
+  );
+}
+
+const page = (el: React.ReactNode) => <Suspense fallback={<PageFallback />}>{el}</Suspense>;
 
 export function makeQueryClient() {
   return new QueryClient({
@@ -30,11 +48,11 @@ export function AppRoutes() {
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route element={<AppLayout />}>
-        <Route index element={<StagePlaceholder title="Overview" stage="3B" description="Execution analytics from /analytics/overview." />} />
-        <Route path="tasks/new" element={<StagePlaceholder title="New Task" stage="3B" description="Submit a natural-language objective." />} />
+        <Route index element={page(<OverviewPage />)} />
+        <Route path="tasks/new" element={page(<NewTaskPage />)} />
         <Route path="tasks/:taskId" element={<StagePlaceholder title="Live Execution" stage="3C" description="Real-time agent workflow over Server-Sent Events." />} />
-        <Route path="executions" element={<StagePlaceholder title="Active Executions" stage="3B" description="Running tasks and pending approvals." />} />
-        <Route path="history" element={<StagePlaceholder title="Execution History" stage="3B" description="All past executions." />} />
+        <Route path="executions" element={page(<ActiveExecutionsPage />)} />
+        <Route path="history" element={page(<HistoryPage />)} />
         <Route path="reports" element={<StagePlaceholder title="Reports" stage="3D" description="Generated reports with sources and verification." />} />
         <Route path="reports/:reportId" element={<StagePlaceholder title="Report" stage="3D" description="Report viewer." />} />
         <Route path="evaluation" element={<StagePlaceholder title="Evaluation" stage="3D" description="Quality metrics and benchmarks." />} />

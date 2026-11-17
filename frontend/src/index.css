@@ -43,6 +43,12 @@
   --status-neutral: oklch(0.6 0.01 286);
   --status-demo: oklch(0.7 0.17 50);
 
+  /* Outcome series for charts (validated: CVD ΔE ≥ 17, lightness band, chroma, contrast). Order:
+     completed → other → failed so red and green are never adjacent. */
+  --chart-completed: oklch(0.62 0.15 155);
+  --chart-other: oklch(0.55 0.12 255);
+  --chart-failed: oklch(0.6 0.22 25);
+
   --chart-1: oklch(0.51 0.23 277);
   --chart-2: oklch(0.62 0.15 155);
   --chart-3: oklch(0.6 0.22 25);
@@ -81,6 +87,10 @@
   --status-danger: oklch(0.7 0.19 25);
   --status-neutral: oklch(0.65 0.01 286);
   --status-demo: oklch(0.78 0.16 55);
+
+  --chart-completed: oklch(0.66 0.15 155);
+  --chart-other: oklch(0.56 0.13 255);
+  --chart-failed: oklch(0.66 0.19 25);
 
   --chart-1: oklch(0.66 0.19 277);
   --chart-2: oklch(0.72 0.15 155);
@@ -126,6 +136,9 @@
   --color-status-danger: var(--status-danger);
   --color-status-neutral: var(--status-neutral);
   --color-status-demo: var(--status-demo);
+  --color-chart-completed: var(--chart-completed);
+  --color-chart-other: var(--chart-other);
+  --color-chart-failed: var(--chart-failed);
   --color-chart-1: var(--chart-1);
   --color-chart-2: var(--chart-2);
   --color-chart-3: var(--chart-3);

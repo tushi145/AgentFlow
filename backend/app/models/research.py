@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import (JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, Text,
+from sqlalchemy import (JSON, Boolean, Float, ForeignKey, Integer, String, Text,
                         UniqueConstraint)
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.database.base import Base, TimestampMixin, utcnow
+from app.database.base import Base, TimestampMixin, utcnow, UTCDateTime
 
 
 class ResearchSource(Base):
@@ -28,7 +28,7 @@ class ResearchSource(Base):
     injection_suspected: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     injection_rules: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
     mode: Mapped[str] = mapped_column(String(8), nullable=False)
-    retrieved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    retrieved_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
 
 
 class VerificationResult(TimestampMixin, Base):

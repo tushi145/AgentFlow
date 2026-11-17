@@ -2,6 +2,13 @@
 
 export const DASH = "—";
 
+/** Parse an API timestamp. The API sends UTC with an offset; a value without an offset is
+ *  treated as UTC too (never as browser-local time). */
+export function parseApiDate(iso: string): Date {
+  const hasZone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(iso.trim());
+  return new Date(hasZone ? iso : `${iso}Z`);
+}
+
 export function formatNumber(n: number | null | undefined): string {
   if (n === null || n === undefined || Number.isNaN(n)) return DASH;
   return new Intl.NumberFormat("en-US").format(n);
@@ -37,8 +44,8 @@ export function formatDuration(seconds: number | null | undefined): string {
 
 export function durationBetween(start: string | null, end: string | null, now = Date.now()): number | null {
   if (!start) return null;
-  const a = new Date(start).getTime();
-  const b = end ? new Date(end).getTime() : now;
+  const a = parseApiDate(start).getTime();
+  const b = end ? parseApiDate(end).getTime() : now;
   return Math.max(0, (b - a) / 1000);
 }
 
@@ -46,12 +53,12 @@ export function formatDateTime(iso: string | null | undefined): string {
   if (!iso) return DASH;
   return new Intl.DateTimeFormat("en-US", {
     month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
-  }).format(new Date(iso));
+  }).format(parseApiDate(iso));
 }
 
 export function formatRelative(iso: string | null | undefined, now = Date.now()): string {
   if (!iso) return DASH;
-  const diff = (now - new Date(iso).getTime()) / 1000;
+  const diff = (now - parseApiDate(iso).getTime()) / 1000;
   if (diff < 45) return "just now";
   const rtf = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
   if (diff < 3600) return rtf.format(-Math.round(diff / 60), "minute");

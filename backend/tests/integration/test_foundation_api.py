@@ -71,3 +71,14 @@ async def test_login_rate_limited(tmp_path) -> None:  # type: ignore[no-untyped-
     codes = [r.status_code for r in resps]
     assert codes[:10] == [401] * 10 and codes[-1] == 429
     assert resps[-1].json()["error"]["code"] == "rate_limited"
+
+
+async def test_system_status_exposes_limit_defaults_and_bounds(auth_client: httpx.AsyncClient) -> None:
+    data = (await auth_client.get("/api/v1/system/status")).json()
+    limits = {f["name"]: f for f in data["limits"]}
+    assert set(limits) >= {"max_total_tokens", "max_llm_calls", "timeout_seconds", "max_cost_usd",
+                           "max_iterations", "max_subtasks", "max_searches_per_subtask"}
+    assert limits["max_llm_calls"] == {"name": "max_llm_calls", "default": 40, "min": 1, "max": 500, "kind": "int"}
+    assert limits["max_total_tokens"]["max"] == 2_000_000  # server ceiling, not schema
+    assert limits["max_cost_usd"]["kind"] == "float" and limits["max_cost_usd"]["default"] is None
+    assert data["approval_timeout_hours"] == 24

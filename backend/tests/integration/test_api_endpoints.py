@@ -224,3 +224,21 @@ async def test_stale_approval_expires_and_cancels_task(api: httpx.AsyncClient) -
     assert t["status"] == "cancelled" and t["error_code"] == "approval_timeout"
     r = await api.post(f"/api/v1/approvals/{t['pending_approval_id'] or 1}/decision", json={"approved": True})
     assert r.status_code == 409
+
+
+async def test_api_datetimes_are_timezone_aware_utc(api: httpx.AsyncClient) -> None:
+    """Regression: SQLite returned naive datetimes, which browsers parsed as local time."""
+    from datetime import UTC, datetime
+    tid = (await api.post("/api/v1/tasks", json={"prompt": "Research Acme graduate hiring.", "mode": "demo"})).json()["id"]
+    t = await wait_done(api, tid)
+    for field in ("created_at", "started_at", "finished_at"):
+        parsed = datetime.fromisoformat(t[field])
+        assert parsed.tzinfo is not None, (field, t[field])
+        assert abs((datetime.now(UTC) - parsed).total_seconds()) < 120
+    assert all(datetime.fromisoformat(e["started_at"]).tzinfo for e in t["agent_executions"])
+    ov = (await api.get("/api/v1/analytics/overview")).json()
+    assert datetime.fromisoformat(ov["recent"][0]["created_at"]).tzinfo is not None
+    async with api.stream("GET", f"/api/v1/tasks/{tid}/events") as resp:
+        body = (await resp.aread()).decode()
+    first = json.loads(next(line[5:] for line in body.splitlines() if line.startswith("data:") and '"type"' in line))
+    assert datetime.fromisoformat(first["created_at"]).tzinfo is not None

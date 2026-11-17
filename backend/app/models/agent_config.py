@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Integer, String, Text
+from sqlalchemy import Boolean, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.database.base import Base, utcnow
+from app.database.base import Base, utcnow, UTCDateTime
 
 
 class AgentConfig(Base):
@@ -26,5 +26,5 @@ class AgentConfig(Base):
     instructions: Mapped[str] = mapped_column(Text, default="", nullable=False)
     max_retries: Mapped[int] = mapped_column(Integer, default=2, nullable=False)
     timeout_s: Mapped[int] = mapped_column(Integer, default=240, nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow,
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow,
                                                  onupdate=utcnow, nullable=False)

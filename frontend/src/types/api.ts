@@ -31,6 +31,14 @@ export interface ProviderStatus {
   default_model: string | null;
 }
 
+export interface LimitField {
+  name: string;
+  default: number | null;
+  min: number | null;
+  max: number | null;
+  kind: "int" | "float";
+}
+
 export interface SystemStatus {
   app_env: string;
   auth_enabled: boolean;
@@ -40,6 +48,9 @@ export interface SystemStatus {
   search_provider: ProviderStatus;
   missing_for_live: string[];
   version: string;
+  limits: LimitField[];
+  approval_cost_threshold_usd: number | null;
+  approval_timeout_hours: number | null;
 }
 
 export interface TaskSummary {
@@ -113,4 +124,36 @@ export interface AgentConfig {
   effective_provider: string;
   effective_model: string | null;
   required: boolean;
+}
+
+export type ApprovalMode = "none" | "plan" | "tools" | "all";
+
+export interface TaskCreate {
+  prompt: string;
+  mode: ExecutionMode;
+  execution_mode: "parallel" | "sequential";
+  approval_mode: ApprovalMode;
+  limits: Partial<Record<string, number>>;
+  disabled_agents: ("analysis" | "verification")[];
+}
+
+export interface OverviewAnalytics {
+  totals: {
+    tasks: number;
+    completed: number;
+    failed: number;
+    active: number;
+    awaiting_approval: number;
+    success_rate: number | null;
+    avg_duration_s: number | null;
+    agents: number;
+    agents_enabled: number;
+    total_tokens: number;
+    total_cost_usd: number | null;
+    demo_tasks: number;
+  };
+  series: { date: string; completed: number; failed: number; other: number }[];
+  status_breakdown: Partial<Record<TaskStatus, number>>;
+  per_agent: Record<string, { runs: number; failed: number; avg_ms: number | null; tokens: number }>;
+  recent: { id: string; title: string; status: TaskStatus; mode: ExecutionMode; created_at: string; cost_usd: number | null }[];
 }

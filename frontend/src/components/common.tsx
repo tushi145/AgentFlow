@@ -36,7 +36,7 @@ export function StatCard({ label, value, hint, icon: Icon, loading, className }:
     <Card className={cn("gap-0 py-4", className)}>
       <CardContent className="space-y-2 px-4">
         <div className="flex items-center justify-between text-xs font-medium text-muted-foreground">
-          <span>{label}</span>
+          <span data-stat-label>{label}</span>
           {Icon && <Icon className="size-3.5" aria-hidden />}
         </div>
         {loading ? (

@@ -3,11 +3,11 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import (JSON, Boolean, DateTime, Float, ForeignKey, Index, Integer, String,
+from sqlalchemy import (JSON, Boolean, Float, ForeignKey, Index, Integer, String,
                         Text)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.database.base import Base, TimestampMixin, new_uuid
+from app.database.base import Base, TimestampMixin, new_uuid, UTCDateTime
 
 
 class TaskStatus:
@@ -58,8 +58,8 @@ class Task(TimestampMixin, Base):
 
     error_code: Mapped[str | None] = mapped_column(String(64))
     error_message: Mapped[str | None] = mapped_column(Text)
-    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    started_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    finished_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
 
     subtasks: Mapped[list[Subtask]] = relationship(
         back_populates="task", cascade="all, delete-orphan", order_by="Subtask.id")

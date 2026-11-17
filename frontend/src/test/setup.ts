@@ -1,9 +1,12 @@
 import "@testing-library/jest-dom/vitest";
 
-import { cleanup } from "@testing-library/react";
+import { cleanup, configure } from "@testing-library/react";
 import { afterAll, afterEach, beforeAll } from "vitest";
 
 import { server } from "./server";
+
+// Lazy-loaded route chunks can take >1s to import on a cold jsdom run.
+configure({ asyncUtilTimeout: 5000 });
 
 // jsdom lacks these browser APIs used by Radix / theme code.
 if (!window.matchMedia) {

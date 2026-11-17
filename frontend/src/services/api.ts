@@ -5,8 +5,11 @@ import type {
   AgentConfig,
   ApiErrorBody,
   ApprovalRequest,
+  OverviewAnalytics,
   SystemStatus,
+  TaskCreate,
   TaskList,
+  TaskSummary,
   User,
 } from "@/types/api";
 
@@ -93,12 +96,21 @@ export const api = {
   systemStatus: () => request<SystemStatus>("/system/status"),
   health: () => request<{ status: string; database: string }>("/health"),
 
-  // tasks (more endpoints are added with the pages that use them)
+  // analytics
+  overview: (mode?: string) => request<OverviewAnalytics>("/analytics/overview", { query: { mode } }),
+
+  // tasks
   listTasks: (q: { status?: string; q?: string; mode?: string; page?: number; page_size?: number } = {}) =>
     request<TaskList>("/tasks", { query: q }),
+  createTask: (body: TaskCreate) => request<TaskSummary>("/tasks", { method: "POST", body: json(body) }),
+  cancelTask: (id: string) => request<TaskSummary>(`/tasks/${encodeURIComponent(id)}/cancel`, { method: "POST" }),
+  retryTask: (id: string) => request<TaskSummary>(`/tasks/${encodeURIComponent(id)}/retry`, { method: "POST" }),
+  deleteTask: (id: string) => request<void>(`/tasks/${encodeURIComponent(id)}`, { method: "DELETE" }),
 
   // approvals
   listApprovals: (status = "pending") => request<ApprovalRequest[]>("/approvals", { query: { status } }),
+  decideApproval: (id: number, approved: boolean, comment?: string) =>
+    request<ApprovalRequest>(`/approvals/${id}/decision`, { method: "POST", body: json({ approved, comment: comment || null }) }),
 
   // agents
   listAgents: () => request<AgentConfig[]>("/agents"),

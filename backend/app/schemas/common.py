@@ -23,6 +23,16 @@ class ProviderStatus(BaseModel):
     default_model: str | None
 
 
+class LimitField(BaseModel):
+    """A per-task limit the client may override: its server default and allowed range."""
+
+    name: str
+    default: float | int | None
+    min: float | int | None
+    max: float | int | None
+    kind: str  # "int" | "float"
+
+
 class SystemStatus(BaseModel):
     app_env: str
     auth_enabled: bool
@@ -32,3 +42,6 @@ class SystemStatus(BaseModel):
     search_provider: ProviderStatus
     missing_for_live: list[str]
     version: str
+    limits: list[LimitField] = []
+    approval_cost_threshold_usd: float | None = None
+    approval_timeout_hours: int | None = None

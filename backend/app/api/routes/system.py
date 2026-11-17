@@ -5,7 +5,26 @@ from sqlalchemy import text
 
 from app import __version__
 from app.api.deps import SessionDep, SettingsDep, UserDep
-from app.schemas.common import ProviderStatus, SystemStatus
+from app.config.settings import Settings
+from app.schemas.common import LimitField, ProviderStatus, SystemStatus
+from app.schemas.tasks import LimitOverrides
+from app.services.budget import TaskLimits
+
+
+def limit_fields(settings: Settings) -> list[LimitField]:
+    """Derived from the request schema + server defaults, so the UI never hard-codes limits."""
+    defaults = TaskLimits.defaults(settings).model_dump()
+    out = []
+    for name, field in LimitOverrides.model_fields.items():
+        lo = hi = None
+        for m in field.metadata:
+            lo = getattr(m, "ge", lo) if getattr(m, "ge", None) is not None else lo
+            hi = getattr(m, "le", hi) if getattr(m, "le", None) is not None else hi
+        if name == "max_total_tokens":
+            hi = settings.max_total_tokens_ceiling
+        kind = "float" if name == "max_cost_usd" else "int"
+        out.append(LimitField(name=name, default=defaults.get(name), min=lo, max=hi, kind=kind))
+    return out
 
 router = APIRouter(tags=["system"])
 
@@ -35,4 +54,6 @@ async def system_status(settings: SettingsDep, _: UserDep) -> SystemStatus:
         llm_providers=llms,
         search_provider=ProviderStatus(name="tavily", configured=settings.search_configured,
                                        default_model=None),
-        missing_for_live=missing, version=__version__)
+        missing_for_live=missing, version=__version__, limits=limit_fields(settings),
+        approval_cost_threshold_usd=settings.approval_cost_threshold_usd,
+        approval_timeout_hours=settings.approval_timeout_hours)

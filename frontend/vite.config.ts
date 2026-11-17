@@ -2,6 +2,7 @@
 import path from "node:path";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
+import { configDefaults } from "vitest/config";
 import { defineConfig } from "vite";
 
 // In development the API is proxied so the session cookie is same-origin (no CORS needed).
@@ -19,5 +20,7 @@ export default defineConfig({
     globals: true,
     setupFiles: ["./src/test/setup.ts"],
     css: false,
+    testTimeout: 20_000,
+    exclude: [...configDefaults.exclude, "e2e/**"],
   },
 });
