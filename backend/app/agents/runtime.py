@@ -103,6 +103,9 @@ class TaskRuntime:
     sources: SourceRegistry
     emit: EmitFn
     embed: EmbedFn | None = None
+    store: Any = None  # ExecutionStore (typed loosely to avoid an import cycle)
+    execution_mode: str = "parallel"
+    approval_mode: str = "none"
     extra: dict[str, Any] = field(default_factory=dict)
 
     @property

@@ -40,6 +40,8 @@ class Task(TimestampMixin, Base):
     limits: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
     agent_overrides: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
     parent_task_id: Mapped[str | None] = mapped_column(String(36))
+    # Execution bookkeeping that must survive approval pauses (e.g. active seconds used).
+    runtime_state: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
 
     progress_done: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     progress_total: Mapped[int] = mapped_column(Integer, default=0, nullable=False)

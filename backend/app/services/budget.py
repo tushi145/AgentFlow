@@ -121,9 +121,18 @@ class BudgetSnapshot:
 
 
 class BudgetGuard:
-    def __init__(self, limits: TaskLimits, pricing: PricingTable) -> None:
+    """Enforces limits. A small reserve of tokens and one LLM call is held back for the final
+    report agent, so a run that hits its budget can still produce a (partial) report."""
+
+    FINAL_AGENT = "report"
+
+    def __init__(self, limits: TaskLimits, pricing: PricingTable, *,
+                 final_reserve_tokens: int | None = None, final_reserve_calls: int = 1) -> None:
         self.limits = limits
         self.pricing = pricing
+        self.final_reserve_tokens = (final_reserve_tokens if final_reserve_tokens is not None
+                                     else min(30_000, limits.max_total_tokens // 5))
+        self.final_reserve_calls = final_reserve_calls
         self._per_agent: dict[str, AgentUsage] = {}
         self._reserved_tokens = 0
         self._lock = asyncio.Lock()
@@ -156,12 +165,15 @@ class BudgetGuard:
                                est_input_tokens: int) -> int:
         """Check limits before an LLM call; returns the clamped `max_output_tokens` to use."""
         async with self._lock:
-            self._check_common()
-            if self._tot("llm_calls") >= self.limits.max_llm_calls:
+            final = agent == self.FINAL_AGENT
+            self._check_common(final=final)
+            call_cap = (self.limits.max_llm_calls if final else
+                        max(1, self.limits.max_llm_calls - self.final_reserve_calls))
+            if self._tot("llm_calls") >= call_cap:
                 raise BudgetExceeded("max_llm_calls",
                                      f"LLM call limit reached ({self.limits.max_llm_calls}).")
-            remaining = (self.limits.max_total_tokens - self.tokens_used - self._reserved_tokens
-                         - est_input_tokens)
+            token_cap = self.limits.max_total_tokens - (0 if final else self.final_reserve_tokens)
+            remaining = (token_cap - self.tokens_used - self._reserved_tokens - est_input_tokens)
             if remaining < 512:
                 raise BudgetExceeded("max_total_tokens",
                                      f"Token budget exhausted ({self.limits.max_total_tokens}).")
@@ -206,13 +218,27 @@ class BudgetGuard:
             else:
                 a.cost_usd += cost
 
-    def _check_common(self) -> None:
-        if self.elapsed_s() > self.limits.timeout_seconds:
+    def _check_common(self, final: bool = False) -> None:
+        # The final report gets a 10% grace period on the time limit.
+        grace = 1.1 if final else 1.0
+        if self.elapsed_s() > self.limits.timeout_seconds * grace:
             raise BudgetExceeded("timeout_seconds",
                                  f"Execution time limit reached ({self.limits.timeout_seconds}s).")
-        if self.limits.max_cost_usd is not None and self.cost_usd >= self.limits.max_cost_usd:
+        if self.limits.max_cost_usd is not None and not final and                 self.cost_usd >= self.limits.max_cost_usd:
             raise BudgetExceeded("max_cost_usd",
                                  f"Cost limit reached (${self.limits.max_cost_usd:.2f}).")
+
+    def restore(self, per_agent: dict[str, dict], elapsed_s: float = 0.0) -> None:
+        """Re-seed counters when a run resumes after an approval pause or restart."""
+        for key, vals in per_agent.items():
+            a = self._agent(key)
+            for f in ("input_tokens", "output_tokens", "cache_read_tokens", "llm_calls",
+                      "tool_calls"):
+                setattr(a, f, int(vals.get(f, 0) or 0))
+            cost = vals.get("cost_usd")
+            a.cost_complete = cost is not None
+            a.cost_usd = float(cost or 0.0)
+        self._started = time.monotonic() - elapsed_s
 
     def snapshot(self) -> BudgetSnapshot:
         return BudgetSnapshot(

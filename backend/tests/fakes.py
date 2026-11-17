@@ -18,8 +18,10 @@ class FakeLLM:
     is_demo = False
 
     def __init__(self, handler: Callable[[LLMRequest], Any] | None = None,
-                 models: list[str] | None | str = "default", usage: Usage | None = None) -> None:
+                 models: list[str] | None | str = "default", usage: Usage | None = None,
+                 delay_s: float = 0.0) -> None:
         self.handler = handler
+        self.delay_s = delay_s
         self.calls: list[LLMRequest] = []
         # models=None simulates an unreachable provider.
         self._models = ["model-a", "model-b"] if models == "default" else models
@@ -28,6 +30,9 @@ class FakeLLM:
 
     async def generate(self, request: LLMRequest) -> LLMResult:
         self.calls.append(request)
+        if self.delay_s:
+            import asyncio
+            await asyncio.sleep(self.delay_s)
         out = self.handler(request) if self.handler else None
         if isinstance(out, Exception):
             raise out

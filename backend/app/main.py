@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import logging
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 
 from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
@@ -14,39 +15,60 @@ from app import __version__
 from app.api.deps import limiter
 from app.api.routes import agents, auth, system
 from app.config.settings import Settings, get_settings
-from app.llm.factory import build_llm_providers
-from app.llm.registry import ModelRegistry
 from app.database.session import create_schema, dispose_engine, init_engine, session_factory
+from app.llm.base import LLMProvider
+from app.llm.factory import build_llm_providers, build_search_provider
+from app.llm.registry import ModelRegistry
 from app.services.agent_config_service import seed_agent_configs
 from app.services.auth_service import ensure_admin_user
+from app.services.events import EventBus
+from app.services.execution_manager import ExecutionManager
+from app.tools.search import SearchProvider
 from app.utils.errors import install_error_handlers
 from app.utils.logging import configure_logging
 
 log = logging.getLogger("agentflow")
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(settings: Settings | None = None, *,
+               live_llms: dict[str, LLMProvider] | None = None,
+               live_search: SearchProvider | None = None) -> FastAPI:
+    """`live_llms` / `live_search` let tests inject fakes; production builds them from env."""
     settings = settings or get_settings()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):  # type: ignore[no-untyped-def]
         configure_logging(settings.log_level)
-        if settings.app_env == "production" and \
-                settings.jwt_secret.get_secret_value().startswith("dev-insecure"):
-            raise RuntimeError("JWT_SECRET must be set in production.")
-        if settings.jwt_secret.get_secret_value().startswith("dev-insecure"):
+        secret = settings.jwt_secret.get_secret_value()
+        if secret.startswith("dev-insecure"):
+            if settings.app_env == "production":
+                raise RuntimeError("JWT_SECRET must be set in production.")
             log.warning("Using the built-in development JWT_SECRET; set JWT_SECRET in .env.")
         settings.reports_dir.mkdir(parents=True, exist_ok=True)
         init_engine(settings.resolved_database_url)
-        if not hasattr(app.state, "model_registry"):
-            app.state.model_registry = ModelRegistry(build_llm_providers(settings))
         await create_schema()
         async with session_factory()() as session:
             await ensure_admin_user(session, settings)
             await seed_agent_configs(session)
-        log.info("AgentFlow %s started (env=%s, live_mode_available=%s)",
-                 __version__, settings.app_env, settings.live_mode_available)
-        yield
+
+        llms = live_llms if live_llms is not None else build_llm_providers(settings)
+        search = live_search if live_search is not None else build_search_provider(settings)
+        if not hasattr(app.state, "model_registry"):
+            app.state.model_registry = ModelRegistry(llms)
+        async with AsyncExitStack() as stack:
+            saver = await stack.enter_async_context(AsyncSqliteSaver.from_conn_string(
+                str(settings.resolved_data_dir / "checkpoints.db")))
+            app.state.bus = EventBus()
+            app.state.manager = ExecutionManager(
+                settings, app.state.bus, checkpointer=saver, registry=app.state.model_registry,
+                live_llms=llms, live_search=search)
+            interrupted = await app.state.manager.recover_after_restart()
+            if interrupted:
+                log.warning("Marked %d in-flight task(s) as interrupted after restart.", interrupted)
+            log.info("AgentFlow %s started (env=%s, live_mode_available=%s)",
+                     __version__, settings.app_env, settings.live_mode_available)
+            yield
+            await app.state.manager.shutdown()
         await dispose_engine()
 
     app = FastAPI(title="AgentFlow API", version=__version__, lifespan=lifespan,

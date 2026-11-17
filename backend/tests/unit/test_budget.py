@@ -42,7 +42,7 @@ def test_limits_resolve_clamps_to_ceiling(tmp_path: Path) -> None:
 
 
 async def test_llm_call_limit() -> None:
-    g = BudgetGuard(limits(max_llm_calls=2), PRICING)
+    g = BudgetGuard(limits(max_llm_calls=2), PRICING, final_reserve_tokens=0, final_reserve_calls=0)
     for _ in range(2):
         granted = await g.reserve_llm_call("planner", 1000, 100)
         await g.record_llm_usage("planner", "anthropic", "priced", Usage(100, 100), granted, 100)
@@ -52,7 +52,8 @@ async def test_llm_call_limit() -> None:
 
 
 async def test_token_budget_clamps_then_blocks() -> None:
-    g = BudgetGuard(limits(max_total_tokens=3_000, max_llm_calls=10), PRICING)
+    g = BudgetGuard(limits(max_total_tokens=3_000, max_llm_calls=10), PRICING,
+                    final_reserve_tokens=0)
     granted = await g.reserve_llm_call("research", 5_000, 1_000)
     assert granted == 2_000  # clamped to remaining budget
     await g.record_llm_usage("research", "anthropic", "priced", Usage(1_000, 1_800), granted, 1_000)
@@ -103,3 +104,23 @@ def test_estimate_run_cost() -> None:
                              agent_models={"report": ("anthropic", "unknown")}, pricing=PRICING,
                              search_provider="tavily", search_credits_per_query=1)
     assert est2.cost_complete is False
+
+
+async def test_reserve_is_held_back_for_final_report() -> None:
+    g = BudgetGuard(limits(max_total_tokens=10_000, max_llm_calls=3), PRICING,
+                    final_reserve_tokens=4_000, final_reserve_calls=1)
+    for _ in range(2):
+        granted = await g.reserve_llm_call("analysis", 1_000, 100)
+        await g.record_llm_usage("analysis", "anthropic", "priced", Usage(100, 900), granted, 100)
+    with pytest.raises(BudgetExceeded):  # third call is reserved for the report
+        await g.reserve_llm_call("verification", 1_000, 100)
+    granted = await g.reserve_llm_call("report", 8_000, 100)
+    assert 0 < granted <= 10_000 - 2_000 - 100
+
+
+async def test_restore_reseeds_counters() -> None:
+    g = BudgetGuard(limits(max_llm_calls=5), PRICING)
+    g.restore({"planner": {"input_tokens": 10, "output_tokens": 5, "llm_calls": 2, "cost_usd": 0.5}},
+              elapsed_s=12)
+    snap = g.snapshot()
+    assert snap.llm_calls == 2 and snap.cost_usd == 0.5 and snap.elapsed_s >= 12
