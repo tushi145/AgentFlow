@@ -203,3 +203,24 @@ def test_benchmark_dataset_is_well_formed() -> None:
     items = load_dataset("verification")
     assert len(items) >= 12 and len({i["id"] for i in items}) == len(items)
     assert {i["gold"] for i in items} >= {"supported", "unsupported", "conflicting", "partially_supported"}
+
+
+async def test_stale_approval_expires_and_cancels_task(api: httpx.AsyncClient) -> None:
+    from datetime import UTC, datetime, timedelta
+
+    from sqlalchemy import update
+
+    from app.database.session import session_factory
+    from app.models import ApprovalRequest
+    tid = (await api.post("/api/v1/tasks", json={"prompt": "Research Acme graduate hiring.",
+                                                 "approval_mode": "plan"})).json()["id"]
+    t = await wait_done(api, tid, {"awaiting_approval"})
+    await asyncio.sleep(0.3)  # let the paused run fully unwind
+    async with session_factory()() as s:
+        await s.execute(update(ApprovalRequest).values(created_at=datetime.now(UTC) - timedelta(hours=48)))
+        await s.commit()
+    assert (await api.get("/api/v1/approvals")).json() == []
+    t = (await api.get(f"/api/v1/tasks/{tid}")).json()
+    assert t["status"] == "cancelled" and t["error_code"] == "approval_timeout"
+    r = await api.post(f"/api/v1/approvals/{t['pending_approval_id'] or 1}/decision", json={"approved": True})
+    assert r.status_code == 409

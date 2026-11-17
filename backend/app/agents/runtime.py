@@ -14,7 +14,7 @@ from urllib.parse import urlparse
 
 from app.config.settings import Settings
 from app.llm.factory import ProviderSet
-from app.security.content_firewall import SanitizedContent
+from app.security.content_firewall import SanitizedContent, sanitize
 from app.services.agent_config_service import EffectiveAgentConfig
 from app.services.budget import BudgetGuard
 from app.tools.evidence import EmbedFn
@@ -57,16 +57,20 @@ class SourceRegistry:
                   is_demo: bool) -> tuple[SourceRecord, bool]:
         """Returns (record, created)."""
         key = url.rstrip("/")
+        # Titles come from the web too: sanitise them and merge their injection flags.
+        clean_title = sanitize(title, max_chars=300)
+        rules = list(dict.fromkeys([*sanitized.matched_rules,
+                                    *(f"title:{r}" for r in clean_title.matched_rules)]))
         async with self._lock:
             if key in self._by_url:
                 return self._by_ref[self._by_url[key]], False
             ref = f"S{len(self._by_ref) + 1}"
             rec = SourceRecord(
-                ref=ref, url=url, title=title[:500], snippet=snippet[:1000],
+                ref=ref, url=url, title=clean_title.text, snippet=snippet[:1000],
                 domain=urlparse(url).netloc.lower().removeprefix("www."),
                 content=sanitized.text, search_query=search_query, provider=provider,
-                relevance_score=score, injection_suspected=sanitized.injection_suspected,
-                injection_rules=list(sanitized.matched_rules), is_demo=is_demo)
+                relevance_score=score, injection_suspected=bool(rules),
+                injection_rules=rules, is_demo=is_demo)
             self._by_ref[ref], self._by_url[key] = rec, ref
         if self._persist:
             await self._persist(rec)

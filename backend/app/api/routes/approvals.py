@@ -11,8 +11,10 @@ router = APIRouter(prefix="/approvals", tags=["approvals"])
 
 
 @router.get("", response_model=list[ApprovalOut])
-async def list_approvals(session: SessionDep, _: UserDep, status: str | None = "pending",
+async def list_approvals(request: Request, session: SessionDep, _: UserDep,
+                         status: str | None = "pending",
                          task_id: str | None = None) -> list[ApprovalOut]:
+    await request.app.state.manager.expire_stale_approvals()
     stmt = select(ApprovalRequest, Task.title).join(Task, Task.id == ApprovalRequest.task_id)
     if status:
         stmt = stmt.where(ApprovalRequest.status == status)

@@ -52,7 +52,6 @@ class Settings(BaseSettings):
     gemini_api_key: SecretStr | None = None
     gemini_default_model: str | None = None
     llm_request_timeout_seconds: float = 180.0
-    llm_max_retries: int = Field(4, ge=0, le=10)
 
     # Search
     tavily_api_key: SecretStr | None = None

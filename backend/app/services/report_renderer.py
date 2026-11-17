@@ -12,7 +12,25 @@ from dataclasses import dataclass, field
 from app.agents.runtime import SourceRecord
 from app.schemas.agent_io import ComparisonTable, ReportDraft
 
-CITATION = re.compile(r"\[(S\d+(?:\s*,\s*S\d+)*)\]")
+# Any bracket group made only of source refs and separators: [S1], [S1, S2], [S2; S9],
+# [S1–S3], [S1-S3], [S1 and S4], [S1][S2] (matched separately).
+_SEP = r"\s*(?:,|;|–|—|-|\band\b)\s*"
+CITATION = re.compile(rf"\[\s*(S\d+(?:{_SEP}S?\d+)*)\s*\]")
+_RANGE = re.compile(r"S(\d+)\s*[–—-]\s*S?(\d+)")
+MAX_RANGE = 30
+
+
+def _expand_refs(group: str) -> list[str]:
+    refs: list[str] = []
+    for m in _RANGE.finditer(group):
+        lo, hi = int(m.group(1)), int(m.group(2))
+        if lo <= hi and hi - lo <= MAX_RANGE:
+            refs += [f"S{i}" for i in range(lo, hi + 1)]
+        else:
+            refs += [f"S{lo}", f"S{hi}"]
+    group = _RANGE.sub(" ", group)
+    refs += re.findall(r"S\d+", group)
+    return list(dict.fromkeys(refs))
 VERDICT_LABEL = {"supported": "✅ Supported", "partially_supported": "🟡 Partially supported",
                  "unsupported": "❌ Unsupported", "conflicting": "⚠️ Conflicting",
                  "unverifiable": "❔ Unverifiable"}
@@ -30,7 +48,7 @@ def filter_citations(text: str, known: set[str]) -> CitationCheck:
     check = CitationCheck(text="")
 
     def repl(m: re.Match[str]) -> str:
-        refs = [r.strip() for r in m.group(1).split(",")]
+        refs = _expand_refs(m.group(1))
         good = [r for r in refs if r in known]
         check.removed += [r for r in refs if r not in known]
         check.cited.update(good)
@@ -103,14 +121,14 @@ def render_report(inp: RenderInput) -> RenderedReport:
                 refs = [x for x in r.source_refs if x in known]
                 cited.update(refs)
                 cells = (r.cells + ["Not found"] * len(t.columns))[:len(t.columns)]
-                rows.append([r.label, *cells, ", ".join(refs) or "—"])
-            parts += [f"### {t.title}", _table(["", *t.columns, "Sources"], rows)]
+                rows.append([clean(r.label), *(clean(c) for c in cells), ", ".join(refs) or "—"])
+            parts += [f"### {clean(t.title)}", _table(["", *t.columns, "Sources"], rows)]
 
     good_calcs = [c for c in inp.calculations if c.get("value") is not None]
     if good_calcs:
         parts.append("## Calculations")
         parts.append(_table(["Quantity", "Expression", "Result", "Sources"], [
-            [c["label"], f"`{c['expression']}`", f"{c['value']:,.4g} {c.get('unit', '')}".strip(),
+            [clean(c["label"]), f"`{c['expression']}`", f"{c['value']:,.4g} {c.get('unit', '')}".strip(),
              ", ".join(c.get("source_refs") or []) or "—"] for c in good_calcs]))
 
     parts += ["## Conclusion", clean(d.conclusion)]

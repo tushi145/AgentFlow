@@ -61,6 +61,7 @@ def create_app(settings: Settings | None = None, *,
                 settings, app.state.bus, checkpointer=saver, registry=app.state.model_registry,
                 live_llms=llms, live_search=search)
             interrupted = await app.state.manager.recover_after_restart()
+            await app.state.manager.expire_stale_approvals()
             if interrupted:
                 log.warning("Marked %d in-flight task(s) as interrupted after restart.", interrupted)
             log.info("AgentFlow %s started (env=%s, live_mode_available=%s)",

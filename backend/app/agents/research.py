@@ -117,7 +117,9 @@ class ResearchAgent(BaseAgent):
                 break
 
         out: list[SourceRecord] = []
-        allowed_urls = {h.url for _, h in hits}  # fetch only URLs the search provider returned
+        # Structural guarantee: only URLs returned by the search provider for this subtask are
+        # ever fetched (page text can't introduce new URLs); asserted below as defence in depth.
+        allowed_urls = {h.url for _, h in hits}
         for q, h in chosen:
             content, title = h.raw_content, h.title
             if len(content) < MIN_CONTENT_CHARS and h.url.startswith(("http://", "https://")) \

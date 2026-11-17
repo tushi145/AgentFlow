@@ -307,5 +307,7 @@ def estimate_run_cost(*, research_subtasks: int, searches_per_subtask: int, iter
     complete &= sc is not None
     cost += sc or 0.0
     breakdown["search"] = {"calls": searches, "cost_usd": sc}
+    # An incomplete estimate (some model unpriced) is reported as unknown, never as a partial
+    # sum that would understate cost against the approval threshold.
     return CostEstimate(total_in, total_out, n_calls, searches,
-                        round(cost, 4) if complete or cost else None, complete, breakdown)
+                        round(cost, 4) if complete else None, complete, breakdown)

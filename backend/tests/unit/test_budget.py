@@ -103,7 +103,7 @@ def test_estimate_run_cost() -> None:
     est2 = estimate_run_cost(research_subtasks=1, searches_per_subtask=1, iterations=1,
                              agent_models={"report": ("anthropic", "unknown")}, pricing=PRICING,
                              search_provider="tavily", search_credits_per_query=1)
-    assert est2.cost_complete is False
+    assert est2.cost_complete is False and est2.cost_usd is None
 
 
 async def test_reserve_is_held_back_for_final_report() -> None:

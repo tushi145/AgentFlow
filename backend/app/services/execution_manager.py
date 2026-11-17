@@ -10,7 +10,7 @@ import asyncio
 import contextlib
 import logging
 import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from langgraph.types import Command
@@ -75,19 +75,27 @@ class ExecutionManager:
         self._launch(task_id, resume=decision)
 
     async def cancel(self, task_id: str) -> None:
-        handle = self._running.get(task_id)
-        if handle and not handle.done():
-            handle.cancel()
-            with contextlib.suppress(asyncio.CancelledError, Exception):
-                await asyncio.wait_for(asyncio.shield(handle), timeout=10)
-            return
         task = await self.store.get_task(task_id)
         if task is None:
             raise NotFoundError("Task not found.")
         if task.status in TaskStatus.TERMINAL:
             raise ConflictError(f"Task already {task.status}.")
-        await self.store.expire_pending_approvals(task_id)
-        await self._finish(task_id, TaskStatus.CANCELLED, "cancelled", "Cancelled by user.")
+        handle = self._running.get(task_id)
+        if handle and not handle.done():
+            if task.status == TaskStatus.AWAITING_APPROVAL:
+                # The run is unwinding after an interrupt; let it finish rather than cancelling
+                # it mid-cleanup, then cancel the paused task below.
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    await asyncio.wait_for(asyncio.shield(handle), timeout=15)
+            else:
+                handle.cancel()
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    await asyncio.wait_for(asyncio.shield(handle), timeout=10)
+        # Whatever happened above, guarantee a terminal state (idempotent).
+        task = await self.store.get_task(task_id)
+        if task is not None and task.status not in TaskStatus.TERMINAL:
+            await self.store.expire_pending_approvals(task_id)
+            await self._finish(task_id, TaskStatus.CANCELLED, "cancelled", "Cancelled by user.")
 
     async def recover_after_restart(self) -> int:
         """Runs that were mid-flight when the process died are marked interrupted (honestly)."""
@@ -233,7 +241,26 @@ class ExecutionManager:
         state["active_seconds"] = round(float(state.get("active_seconds", 0.0)) + seconds, 2)
         await self.store.update_task(task_id, runtime_state=state)
 
+    async def expire_stale_approvals(self) -> int:
+        """Pending approvals older than APPROVAL_TIMEOUT_HOURS expire; their task is cancelled."""
+        cutoff = datetime.now(UTC) - timedelta(hours=self.settings.approval_timeout_hours)
+        async with session_factory()() as s:
+            pending = (await s.scalars(select(ApprovalRequest)
+                                       .where(ApprovalRequest.status == "pending"))).all()
+        stale = [r for r in pending
+                 if (r.created_at if r.created_at.tzinfo else r.created_at.replace(tzinfo=UTC)) < cutoff]
+        for req in stale:
+            if self.is_running(req.task_id):
+                continue
+            await self.store.expire_pending_approvals(req.task_id)
+            task = await self.store.get_task(req.task_id)
+            if task is not None and task.status not in TaskStatus.TERMINAL:
+                await self._finish(req.task_id, TaskStatus.CANCELLED, "approval_timeout",
+                                   f"No approval decision within {self.settings.approval_timeout_hours}h.")
+        return len(stale)
+
     async def decide_approval(self, approval_id: int, approved: bool, comment: str | None) -> ApprovalRequest:
+        await self.expire_stale_approvals()
         async with db_write_lock(), session_factory()() as s:
             req = await s.get(ApprovalRequest, approval_id)
             if req is None:
