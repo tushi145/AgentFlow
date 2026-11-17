@@ -12,8 +12,10 @@ from slowapi.errors import RateLimitExceeded
 
 from app import __version__
 from app.api.deps import limiter
-from app.api.routes import auth, system
+from app.api.routes import agents, auth, system
 from app.config.settings import Settings, get_settings
+from app.llm.factory import build_llm_providers
+from app.llm.registry import ModelRegistry
 from app.database.session import create_schema, dispose_engine, init_engine, session_factory
 from app.services.agent_config_service import seed_agent_configs
 from app.services.auth_service import ensure_admin_user
@@ -27,7 +29,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
 
     @asynccontextmanager
-    async def lifespan(_: FastAPI):  # type: ignore[no-untyped-def]
+    async def lifespan(app: FastAPI):  # type: ignore[no-untyped-def]
         configure_logging(settings.log_level)
         if settings.app_env == "production" and \
                 settings.jwt_secret.get_secret_value().startswith("dev-insecure"):
@@ -36,6 +38,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             log.warning("Using the built-in development JWT_SECRET; set JWT_SECRET in .env.")
         settings.reports_dir.mkdir(parents=True, exist_ok=True)
         init_engine(settings.resolved_database_url)
+        if not hasattr(app.state, "model_registry"):
+            app.state.model_registry = ModelRegistry(build_llm_providers(settings))
         await create_schema()
         async with session_factory()() as session:
             await ensure_admin_user(session, settings)
@@ -57,6 +61,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     api = APIRouter(prefix="/api/v1")
     api.include_router(system.router)
     api.include_router(auth.router)
+    api.include_router(agents.router)
     app.include_router(api)
     return app
 
