@@ -46,6 +46,12 @@ export const defaultHandlers = [
   http.get("/api/v1/approvals", () => HttpResponse.json([])),
   http.get("/api/v1/agents", () => HttpResponse.json(agentsFixture)),
   http.get("/api/v1/tasks", () => HttpResponse.json({ items: [], total: 0, page: 1, page_size: 20 })),
+  // Brand-new account: the Overview route ("/") is rendered by shell tests too.
+  http.get("/api/v1/analytics/overview", () => HttpResponse.json({
+    totals: { tasks: 0, completed: 0, failed: 0, active: 0, awaiting_approval: 0, success_rate: null, avg_duration_s: null,
+              agents: 5, agents_enabled: 5, total_tokens: 0, total_cost_usd: null, demo_tasks: 0 },
+    series: [], status_breakdown: {}, per_agent: {}, recent: [],
+  })),
 ];
 
 export const server = setupServer(...defaultHandlers);

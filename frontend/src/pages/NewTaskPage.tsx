@@ -100,7 +100,7 @@ export default function NewTaskPage() {
   const [limits, setLimits] = useState<Record<string, string>>({});
   const [touched, setTouched] = useState(false);
 
-  const limitFields = status.data?.limits ?? [];
+  const limitFields = useMemo(() => status.data?.limits ?? [], [status.data?.limits]);
   const limitErrors = useMemo(
     () => Object.fromEntries(limitFields.map((f) => [f.name, limitError(f, limits[f.name] ?? "")])),
     [limitFields, limits],

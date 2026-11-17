@@ -5,7 +5,8 @@ a Planner decompose it into a dependency graph, runs Research agents in parallel
 web, analyses and verifies every claim against retrieved evidence, and produces a cited
 Markdown/PDF report. The whole execution streams live to the UI.
 
-> 🚧 **Status: Phase 2 (backend) complete.** The frontend is next. See [docs/roadmap.md](docs/roadmap.md).
+> 🚧 **Status: Phase 2 (backend), Phase 3A (frontend shell) and Phase 3B (Overview, New Task, Active
+> Executions, History) complete.** Phase 3C is next. See [docs/roadmap.md](docs/roadmap.md).
 
 ## Highlights
 

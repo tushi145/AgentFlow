@@ -20,7 +20,7 @@ import type { ApprovalRequest, TaskSummary } from "@/types/api";
 const POLL_MS = 3000;
 
 function useNow(intervalMs = 1000) {
-  const [now, setNow] = useState(Date.now());
+  const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), intervalMs);
     return () => clearInterval(id);
