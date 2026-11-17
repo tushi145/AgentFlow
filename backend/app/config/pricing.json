@@ -1,0 +1,15 @@
+{
+  "_comment": "USD per million tokens. Edit or point PRICING_FILE at your own copy. Models absent here report cost as null ('pricing not configured'). Anthropic rates: first-party API list prices as of 2026-10.",
+  "llm": {
+    "anthropic": {
+      "claude-fable-5-1":  {"input_per_mtok": 10.0, "output_per_mtok": 50.0, "cache_read_per_mtok": 0.25},
+      "claude-opus-5-5":   {"input_per_mtok": 4.0,  "output_per_mtok": 20.0, "cache_read_per_mtok": 0.20},
+      "claude-sonnet-5-5": {"input_per_mtok": 2.0,  "output_per_mtok": 10.0, "cache_read_per_mtok": 0.20},
+      "claude-haiku-5-5":  {"input_per_mtok": 0.10, "output_per_mtok": 0.50}
+    },
+    "gemini": {}
+  },
+  "search": {
+    "tavily": {"usd_per_credit": 0.008}
+  }
+}
