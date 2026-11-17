@@ -22,3 +22,8 @@ frontend/dist/
 Thumbs.db
 .vscode/
 .idea/
+
+# Frontend test artefacts
+frontend/test-results/
+frontend/playwright-report/
+frontend/dist/
