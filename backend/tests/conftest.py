@@ -27,6 +27,7 @@ def make_settings(tmp_path: Path, **overrides: object) -> Settings:
         tavily_api_key=None,
         anthropic_default_model="test-model-default",
         gemini_default_model=None,
+        rate_limit_enabled=False,
     )
     base.update(overrides)
     return Settings(**base)

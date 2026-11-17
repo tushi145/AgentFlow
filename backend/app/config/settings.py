@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     app_env: Literal["development", "production", "test"] = "development"
     log_level: str = "INFO"
     cors_origins: str = "http://localhost:5173"
+    rate_limit_enabled: bool = True
     jwt_secret: SecretStr = SecretStr("dev-insecure-secret-change-me-before-deploying-0000")
     session_hours: int = Field(12, ge=1, le=24 * 30)
 

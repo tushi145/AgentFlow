@@ -71,6 +71,14 @@ def install_error_handlers(app: FastAPI) -> None:
         response.headers["x-request-id"] = rid[:64]
         return response
 
+    from slowapi.errors import RateLimitExceeded
+
+    @app.exception_handler(RateLimitExceeded)
+    async def _rate_limited(_: Request, exc: RateLimitExceeded) -> JSONResponse:
+        resp = _envelope(429, "rate_limited", "Too many requests. Please try again shortly.")
+        resp.headers["Retry-After"] = "60"
+        return resp
+
     @app.exception_handler(AppError)
     async def _app_error(_: Request, exc: AppError) -> JSONResponse:
         return _envelope(exc.status_code, exc.code, exc.message, exc.details)

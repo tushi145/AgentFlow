@@ -58,3 +58,16 @@ async def test_startup_seeds_admin_and_agents(app) -> None:  # type: ignore[no-u
     assert [u.username for u in users] == ["admin"]
     assert users[0].password_hash.startswith("$2")  # stored hashed, never plain
     assert sorted(agents) == ["analysis", "planner", "report", "research", "verification"]
+
+
+async def test_login_rate_limited(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    from app.main import create_app
+    from tests.conftest import make_settings
+    app = create_app(make_settings(tmp_path, rate_limit_enabled=True))
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as c:
+            resps = [await c.post("/api/v1/auth/login", json={"username": "admin", "password": "x"})
+                     for _ in range(12)]
+    codes = [r.status_code for r in resps]
+    assert codes[:10] == [401] * 10 and codes[-1] == 429
+    assert resps[-1].json()["error"]["code"] == "rate_limited"
