@@ -13,7 +13,8 @@ from app import __version__
 from app.api.deps import limiter
 from app.api.routes import agents, approvals, auth, insights, reports, system, tasks
 from app.config.settings import Settings, get_settings
-from app.database.session import create_schema, dispose_engine, init_engine, session_factory
+from app.database.migrations import migrate_database
+from app.database.session import dispose_engine, init_engine, session_factory
 from app.llm.base import LLMProvider
 from app.llm.factory import build_llm_providers, build_search_provider
 from app.llm.registry import ModelRegistry
@@ -44,7 +45,9 @@ def create_app(settings: Settings | None = None, *,
             log.warning("Using the built-in development JWT_SECRET; set JWT_SECRET in .env.")
         settings.reports_dir.mkdir(parents=True, exist_ok=True)
         init_engine(settings.resolved_database_url)
-        await create_schema()
+        migration = await migrate_database(settings)  # backs up SQLite first if anything changes
+        if migration.action in ("adopted", "upgraded"):
+            log.warning("Schema migrated to %s (backup: %s).", migration.to_revision, migration.backup_path)
         async with session_factory()() as session:
             await ensure_admin_user(session, settings)
             await seed_agent_configs(session)

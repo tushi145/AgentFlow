@@ -49,7 +49,8 @@ def session_factory() -> async_sessionmaker[AsyncSession]:
 
 
 async def create_schema() -> None:
-    """Create tables. Dev/test convenience; production uses Alembic migrations."""
+    """Create missing tables only (never alters existing ones). The app uses
+    `app.database.migrations.migrate_database` instead, which also upgrades existing databases."""
     import app.models  # noqa: F401  (register mappers)
 
     async with get_engine().begin() as conn:

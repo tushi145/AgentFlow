@@ -25,8 +25,16 @@
 - Mobile: the Agent performance table scrolls horizontally rather than reflowing.
 
 
+### Database migrations
+- Alembic is wired in (`backend/migrations`, revisions `0001_baseline`, `0002_tasks_runtime_state`). The app
+  migrates on startup; `python -m app.database.migrations` does the same manually.
+- SQLite databases are backed up (online backup API, verified) to `<data_dir>/backups/` before any schema change;
+  if the backup fails, nothing is migrated. Pre-Alembic databases are adopted (stamped at the baseline, then
+  upgraded). Fresh databases are created from the models and stamped at head.
+- New schema changes: `alembic revision -m "..."` from `backend/`, then edit the generated file.
+
 ## Known limitations / follow-ups (tracked)
-- Alembic migrations not yet generated (dev uses `create_all`); required before Postgres deploy (Phase 6).
+- Postgres: migrations run without an automatic backup (a warning is logged); take a `pg_dump` first (Phase 6).
 - Embedding-based evidence retrieval (Gemini) not wired yet; BM25 is used and reported (Phase 4).
 - LangGraph checkpoints use a SQLite file even when the main DB is Postgres (fine for single-node).
 - SSRF guard resolves DNS before connecting; a DNS-rebinding race is theoretically possible (documented).

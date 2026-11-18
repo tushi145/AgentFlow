@@ -37,6 +37,10 @@ pip install -r requirements-dev.txt
 uvicorn app.main:app --reload --port 8000
 ```
 
+The database schema is migrated automatically on startup (Alembic). SQLite databases are backed
+up to `backend/data/backups/` before any schema change. To migrate without starting the server:
+`python -m app.database.migrations`.
+
 Open interactive API docs at <http://localhost:8000/api/docs>. Log in with `ADMIN_USERNAME` /
 `ADMIN_PASSWORD` from `.env` (defaults: `admin` / `admin` in development).
 

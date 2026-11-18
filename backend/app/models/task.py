@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import (JSON, Boolean, Float, ForeignKey, Index, Integer, String,
-                        Text)
+                        Text, text)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database.base import Base, TimestampMixin, new_uuid, UTCDateTime
@@ -41,7 +41,9 @@ class Task(TimestampMixin, Base):
     agent_overrides: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
     parent_task_id: Mapped[str | None] = mapped_column(String(36))
     # Execution bookkeeping that must survive approval pauses (e.g. active seconds used).
-    runtime_state: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    # server_default matches migration 0002, so new and migrated databases have the same schema.
+    runtime_state: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False,
+                                                          server_default=text("'{}'"))
 
     progress_done: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     progress_total: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
