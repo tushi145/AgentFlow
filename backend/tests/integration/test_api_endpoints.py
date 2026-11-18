@@ -160,6 +160,36 @@ async def test_analytics_and_evaluation_summary(api: httpx.AsyncClient) -> None:
     assert ev["task_completion_rate"] == 1.0 and ev["source_coverage_rate"] == 1.0
     per_task = (await api.get(f"/api/v1/evaluations/tasks/{live}")).json()
     assert per_task["metrics"]["mode"] == "live"
+    # Duration / token aggregates cover completed LIVE runs only.
+    assert ev["duration_s"]["runs"] == 1 and ev["duration_s"]["mean"] is not None
+    assert ev["duration_s"]["median"] == ev["duration_s"]["mean"] == ev["duration_s"]["max"]
+    live_task = (await api.get(f"/api/v1/tasks/{live}")).json()
+    assert ev["tokens"] == {"runs": 1, "total": live_task["input_tokens"] + live_task["output_tokens"],
+                            "mean_per_run": live_task["input_tokens"] + live_task["output_tokens"]}
+
+    # Per-run metrics: both modes by default, newest first, each labelled with its mode.
+    runs = (await api.get("/api/v1/evaluations/runs")).json()
+    assert runs["total"] == 2 and {r["task_id"] for r in runs["items"]} == {live, demo}
+    by_mode = {r["mode"]: r for r in runs["items"]}
+    assert by_mode["demo"]["metrics"]["mode"] == "demo" and by_mode["live"]["metrics"]["completed"] is True
+    assert by_mode["live"]["duration_s"] is not None and by_mode["live"]["title"]
+    only_live = (await api.get("/api/v1/evaluations/runs", params={"mode": "live"})).json()
+    assert only_live["total"] == 1 and only_live["items"][0]["task_id"] == live
+    paged = (await api.get("/api/v1/evaluations/runs", params={"page_size": 1, "page": 2})).json()
+    assert paged["total"] == 2 and len(paged["items"]) == 1
+    assert (await api.get("/api/v1/evaluations/runs", params={"page_size": 101})).status_code == 422
+
+
+async def test_evaluation_summary_without_live_runs_is_null_not_zero(api: httpx.AsyncClient) -> None:
+    demo = (await api.post("/api/v1/tasks", json={"prompt": "Research Acme graduate hiring.", "mode": "demo"})).json()["id"]
+    await wait_done(api, demo)
+    ev = (await api.get("/api/v1/evaluations/summary")).json()
+    assert ev["live_runs_evaluated"] == 0
+    for k in ("task_completion_rate", "citation_integrity_rate", "source_coverage_rate", "supported_claim_rate",
+              "mean_confidence", "verification_benchmark"):
+        assert ev[k] is None, k
+    assert ev["duration_s"] == {"runs": 0, "mean": None, "median": None, "max": None}
+    assert ev["tokens"] == {"runs": 0, "total": None, "mean_per_run": None}
 
 
 async def test_benchmark_run_with_fake_live_model(api: httpx.AsyncClient) -> None:

@@ -6,7 +6,8 @@ web, analyses and verifies every claim against retrieved evidence, and produces 
 Markdown/PDF report. The whole execution streams live to the UI.
 
 > 🚧 **Status: Phase 2 (backend), Phase 3A (frontend shell), Phase 3B (Overview, New Task, Active
-> Executions, History) and Phase 3C (Live Execution) complete.** Phase 3D is next. See [docs/roadmap.md](docs/roadmap.md).
+> Executions, History), Phase 3C (Live Execution) and Phase 3D (Reports, Agent Configuration, Evaluation,
+> Settings) complete.** See [docs/roadmap.md](docs/roadmap.md).
 
 ## Highlights
 

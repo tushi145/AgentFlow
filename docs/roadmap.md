@@ -4,7 +4,19 @@
 - [x] Phase 3A – Frontend foundation: design system, app shell, auth, system status
 - [x] Phase 3B – Overview, New Task, Active Executions, Execution History (all data from backend APIs)
 - [x] Phase 3C – Live Execution: workflow graph, SSE timeline (reconnect + replay), sources, verification, approvals, outputs
-- [ ] Phase 3D – next (not started)
+- [x] Phase 3D – Reports viewer, Agent configuration, Evaluation dashboard, Settings
+- [ ] Phase 4 – next (not started)
+
+### Phase 3D notes
+- Reports render with react-markdown + remark-gfm. Raw HTML is never rendered (reports contain text derived
+  from untrusted pages); only http(s) URLs become links; `demo://` is shown as text; remote images are not loaded.
+- Backend (additive): `/evaluations/summary` gained `duration_s` and `tokens` (completed LIVE runs, null when
+  none); new `GET /evaluations/runs` lists per-run recorded metrics (mode-filterable, demo rows labelled).
+- Execution defaults (mode, parallelism, approval) are stored in the browser (localStorage); the backend has
+  no per-user preference store. API keys are only reported as configured / not configured.
+- Agent model selection needs a configured provider; without keys only limits and instructions are editable.
+- `npm audit`: 4 high-severity findings in Vite's dependency chain (picomatch); pre-existing, fix requires a
+  breaking Vite change.
 
 ### Phase 3C notes
 - Event stream: native EventSource reconnect (Last-Event-ID) + manual `?after=<id>` reconnect with backoff + a

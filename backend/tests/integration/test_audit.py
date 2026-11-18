@@ -52,7 +52,8 @@ async def test_no_secret_in_any_response_or_log(tmp_path: Path, caplog: pytest.L
                          f"/api/v1/tasks/{tid}/events", "/api/v1/reports",
                          f"/api/v1/reports/{t['report_id']}", f"/api/v1/reports/{t['report_id']}/download.md",
                          "/api/v1/analytics/overview", "/api/v1/evaluations/summary",
-                         f"/api/v1/evaluations/tasks/{tid}", "/api/v1/approvals?status=",
+                         f"/api/v1/evaluations/tasks/{tid}", "/api/v1/evaluations/runs",
+                         "/api/v1/approvals?status=",
                          "/api/openapi.json", "/api/v1/auth/me"]:
                 r = await c.get(path)
                 assert r.status_code == 200, (path, r.status_code)

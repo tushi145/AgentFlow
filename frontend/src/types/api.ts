@@ -191,6 +191,108 @@ export interface ReportSummary {
   has_pdf: boolean;
 }
 
+export interface ReportDetail extends ReportSummary {
+  markdown: string;
+  prompt: string;
+  sources: ResearchSource[];
+  /** Latest verification iteration only. */
+  verifications: VerificationResult[];
+}
+
+export type ReportList = Paged<ReportSummary>;
+
+/* ------------------------------------------------------------------ agents / models */
+
+export type Effort = "low" | "medium" | "high" | "xhigh" | "max";
+
+export interface ModelInfo {
+  id: string;
+  display_name: string;
+  provider: string;
+  max_input_tokens: number | null;
+  max_output_tokens: number | null;
+}
+
+export interface ProviderModels {
+  provider: string;
+  configured: boolean;
+  default_model: string | null;
+  /** valid | invalid | unverified | provider_not_configured | null */
+  default_model_status: string | null;
+  error: string | null;
+  models: ModelInfo[];
+}
+
+/** PUT /agents/{key}. Omitted fields are left unchanged by the backend. */
+export interface AgentConfigUpdate {
+  enabled?: boolean;
+  provider?: "anthropic" | "gemini";
+  model?: string;
+  clear_model_override?: boolean;
+  effort?: Effort;
+  clear_effort?: boolean;
+  max_output_tokens?: number;
+  instructions?: string;
+  max_retries?: number;
+  timeout_s?: number;
+}
+
+/* ------------------------------------------------------------------ evaluation */
+
+export interface EvaluationSummary {
+  live_runs_evaluated: number;
+  task_completion_rate: number | null;
+  citation_integrity_rate: number | null;
+  source_coverage_rate: number | null;
+  claims_with_source_rate: number | null;
+  supported_claim_rate: number | null;
+  mean_confidence: number | null;
+  agent_failures: Record<string, { runs: number; failed: number; failure_rate: number | null }>;
+  verification_benchmark: { accuracy: number | null; binary_accuracy: number | null; model: string | null; run_id: number; created_at: string } | null;
+  duration_s: { runs: number; mean: number | null; median: number | null; max: number | null };
+  tokens: { runs: number; total: number | null; mean_per_run: number | null };
+}
+
+/** Per-run metrics recorded by the `evaluate` graph node (backend/app/evaluation/metrics.py). */
+export interface RunMetrics {
+  mode: string;
+  completed: boolean;
+  budget_exhausted: boolean;
+  iterations: number;
+  citation_integrity?: { valid: number; removed: number; rate: number | null };
+  source_coverage?: { subtasks: number; subtasks_with_sources: number; rate: number | null; sources: number;
+                      unique_domains: number; claims_with_source_rate: number | null; flagged_injection_sources: number };
+  verification?: { claims: number; verdicts: Record<string, number>; supported_rate: number | null;
+                   mean_confidence: number | null; retrieval_method: string | null };
+  reliability?: { agent_failures: number; retries: number };
+}
+
+export interface EvaluationRun {
+  task_id: string;
+  title: string;
+  mode: ExecutionMode;
+  status: TaskStatus;
+  created_at: string;
+  duration_s: number | null;
+  input_tokens: number;
+  output_tokens: number;
+  llm_calls: number;
+  tool_calls: number;
+  cost_usd: number | null;
+  metrics: RunMetrics;
+}
+
+export interface BenchmarkRun {
+  id: number;
+  suite: string;
+  status: "running" | "completed" | "failed" | string;
+  provider: string | null;
+  model: string | null;
+  metrics: Record<string, unknown>;
+  cost_usd: number | null;
+  created_at: string;
+}
+
 /** One persisted execution event, as streamed over SSE (`event: agentflow`). */
 export interface ExecutionEvent {
   id: number;

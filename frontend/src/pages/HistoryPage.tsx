@@ -16,6 +16,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { useDebounced } from "@/hooks/use-debounced";
 import { useDeleteTask, useRetryTask, useTaskList } from "@/hooks/use-tasks";
 import {
   durationBetween, formatCompact, formatCost, formatDateTime, formatDuration,
@@ -25,15 +26,6 @@ import { ACTIVE_STATUSES, type TaskStatus, type TaskSummary } from "@/types/api"
 
 const PAGE_SIZE = 20;
 const ALL = "all";
-
-function useDebounced<T>(value: T, ms = 300) {
-  const [v, setV] = useState(value);
-  useEffect(() => {
-    const id = setTimeout(() => setV(value), ms);
-    return () => clearTimeout(id);
-  }, [value, ms]);
-  return v;
-}
 
 function RowActions({ task }: { task: TaskSummary }) {
   const navigate = useNavigate();

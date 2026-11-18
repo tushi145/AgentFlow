@@ -18,6 +18,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useSystemStatus } from "@/hooks/use-system";
 import { useCreateTask } from "@/hooks/use-tasks";
 import { formatCost } from "@/lib/format";
+import { initialMode, loadPreferences } from "@/lib/preferences";
 import { cn } from "@/lib/utils";
 import { api, ApiError } from "@/services/api";
 import type { ApprovalMode, ExecutionMode, LimitField, TaskCreate } from "@/types/api";
@@ -91,11 +92,12 @@ export default function NewTaskPage() {
   const create = useCreateTask();
 
   const liveAvailable = !!status.data?.live_mode_available;
+  const [prefs] = useState(loadPreferences); // defaults chosen in Settings (this browser)
   const [prompt, setPrompt] = useState("");
   const [modeChoice, setModeChoice] = useState<ExecutionMode | null>(null);
-  const mode: ExecutionMode = modeChoice ?? (liveAvailable ? "live" : "demo");
-  const [executionMode, setExecutionMode] = useState<"parallel" | "sequential">("parallel");
-  const [approvalMode, setApprovalMode] = useState<ApprovalMode>("none");
+  const mode: ExecutionMode = modeChoice ?? initialMode(prefs, liveAvailable);
+  const [executionMode, setExecutionMode] = useState<"parallel" | "sequential">(prefs.execution_mode);
+  const [approvalMode, setApprovalMode] = useState<ApprovalMode>(prefs.approval_mode);
   const [disabled, setDisabled] = useState<Set<"analysis" | "verification">>(new Set());
   const [limits, setLimits] = useState<Record<string, string>>({});
   const [touched, setTouched] = useState(false);

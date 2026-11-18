@@ -8,7 +8,7 @@ import { ThemeProvider, useTheme } from "@/components/theme-provider";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AppLayout } from "@/layouts/AppLayout";
 import LoginPage from "@/pages/LoginPage";
-import { NotFoundPage, StagePlaceholder } from "@/pages/StagePlaceholder";
+import { NotFoundPage } from "@/pages/StagePlaceholder";
 import { ApiError } from "@/services/api";
 
 // Route-level code splitting: each page is its own chunk.
@@ -17,6 +17,11 @@ const NewTaskPage = lazy(() => import("@/pages/NewTaskPage"));
 const ActiveExecutionsPage = lazy(() => import("@/pages/ActiveExecutionsPage"));
 const HistoryPage = lazy(() => import("@/pages/HistoryPage"));
 const TaskExecutionPage = lazy(() => import("@/pages/TaskExecutionPage"));
+const ReportsPage = lazy(() => import("@/pages/ReportsPage"));
+const ReportViewerPage = lazy(() => import("@/pages/ReportViewerPage"));
+const AgentsPage = lazy(() => import("@/pages/AgentsPage"));
+const EvaluationPage = lazy(() => import("@/pages/EvaluationPage"));
+const SettingsPage = lazy(() => import("@/pages/SettingsPage"));
 
 function PageFallback() {
   return (
@@ -54,11 +59,11 @@ export function AppRoutes() {
         <Route path="tasks/:taskId" element={page(<TaskExecutionPage />)} />
         <Route path="executions" element={page(<ActiveExecutionsPage />)} />
         <Route path="history" element={page(<HistoryPage />)} />
-        <Route path="reports" element={<StagePlaceholder title="Reports" stage="3D" description="Generated reports with sources and verification." />} />
-        <Route path="reports/:reportId" element={<StagePlaceholder title="Report" stage="3D" description="Report viewer." />} />
-        <Route path="evaluation" element={<StagePlaceholder title="Evaluation" stage="3D" description="Quality metrics and benchmarks." />} />
-        <Route path="agents" element={<StagePlaceholder title="Agent Configuration" stage="3D" description="Models, instructions and limits per agent." />} />
-        <Route path="settings" element={<StagePlaceholder title="Settings" stage="3D" description="Theme, providers and defaults." />} />
+        <Route path="reports" element={page(<ReportsPage />)} />
+        <Route path="reports/:reportId" element={page(<ReportViewerPage />)} />
+        <Route path="evaluation" element={page(<EvaluationPage />)} />
+        <Route path="agents" element={page(<AgentsPage />)} />
+        <Route path="settings" element={page(<SettingsPage />)} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>
     </Routes>

@@ -3,10 +3,17 @@
 
 import type {
   AgentConfig,
+  AgentConfigUpdate,
   ApiErrorBody,
   ApprovalRequest,
+  BenchmarkRun,
+  EvaluationRun,
+  EvaluationSummary,
   OverviewAnalytics,
-  ReportSummary,
+  Paged,
+  ProviderModels,
+  ReportDetail,
+  ReportList,
   ResearchSource,
   SystemStatus,
   TaskCreate,
@@ -125,7 +132,22 @@ export const api = {
   taskUsage: (id: string) => request<TaskUsage>(`/tasks/${encodeURIComponent(id)}/usage`),
 
   // reports
-  getReport: (id: number) => request<ReportSummary>(`/reports/${id}`),
+  getReport: (id: number) => request<ReportDetail>(`/reports/${id}`),
+  listReports: (q: { q?: string; mode?: string; page?: number; page_size?: number } = {}) =>
+    request<ReportList>("/reports", { query: q }),
+
+  // agents / models
+  updateAgent: (key: string, body: AgentConfigUpdate) =>
+    request<AgentConfig>(`/agents/${encodeURIComponent(key)}`, { method: "PUT", body: json(body) }),
+  listModels: (refresh = false) => request<ProviderModels[]>("/models", { query: { refresh: refresh || undefined } }),
+
+  // evaluation
+  evaluationSummary: () => request<EvaluationSummary>("/evaluations/summary"),
+  evaluationRuns: (q: { mode?: string; page?: number; page_size?: number } = {}) =>
+    request<Paged<EvaluationRun>>("/evaluations/runs", { query: q }),
+  listBenchmarks: () => request<BenchmarkRun[]>("/evaluations/benchmarks"),
+  runBenchmark: (suite: string) =>
+    request<BenchmarkRun>(`/evaluations/benchmarks/${encodeURIComponent(suite)}/run`, { method: "POST" }),
 
   // approvals
   listApprovals: (status = "pending", taskId?: string) =>

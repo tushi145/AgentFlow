@@ -6,8 +6,9 @@ import asyncio
 import logging
 from collections import Counter, defaultdict
 from datetime import UTC, datetime, timedelta
+from typing import Annotated
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Query, Request
 from sqlalchemy import func, select
 
 from app.api.deps import SessionDep, SettingsDep, UserDep, limiter
@@ -115,6 +116,9 @@ async def evaluation_summary(session: SessionDep, _: UserDep) -> dict:
         v["failure_rate"] = round(v["failed"] / v["runs"], 4) if v["runs"] else None
     latest_bench = await session.scalar(select(BenchmarkRun).where(BenchmarkRun.status == "completed")
                                         .order_by(BenchmarkRun.id.desc()))
+    done = [t for t in terminal if t.status == TaskStatus.COMPLETED]
+    durations = sorted(_duration_s(t) for t in done if _duration_s(t) is not None)  # type: ignore[type-var]
+    tokens = [t.input_tokens + t.output_tokens for t in done]
     return {
         "live_runs_evaluated": len(rows),
         "task_completion_rate": round(sum(1 for t in terminal if t.status == TaskStatus.COMPLETED)
@@ -125,12 +129,52 @@ async def evaluation_summary(session: SessionDep, _: UserDep) -> dict:
         "supported_claim_rate": avg(("verification", "supported_rate")),
         "mean_confidence": avg(("verification", "mean_confidence")),
         "agent_failures": dict(failures),
+        # Over completed live runs; None (not 0) when there are none.
+        "duration_s": {"runs": len(durations),
+                       "mean": round(sum(durations) / len(durations), 1) if durations else None,
+                       "median": _median(durations), "max": durations[-1] if durations else None},
+        "tokens": {"runs": len(tokens), "total": sum(tokens) if tokens else None,
+                   "mean_per_run": round(sum(tokens) / len(tokens)) if tokens else None},
         "verification_benchmark": {"accuracy": latest_bench.metrics.get("accuracy"),
                                    "binary_accuracy": latest_bench.metrics.get("binary_accuracy"),
                                    "model": latest_bench.model, "run_id": latest_bench.id,
                                    "created_at": latest_bench.created_at.isoformat()}
         if latest_bench else None,
     }
+
+
+def _duration_s(t: Task) -> float | None:
+    if not (t.started_at and t.finished_at):
+        return None
+    return round((t.finished_at - t.started_at).total_seconds(), 1)
+
+
+def _median(sorted_vals: list[float]) -> float | None:
+    if not sorted_vals:
+        return None
+    n, mid = len(sorted_vals), len(sorted_vals) // 2
+    return sorted_vals[mid] if n % 2 else round((sorted_vals[mid - 1] + sorted_vals[mid]) / 2, 1)
+
+
+@router.get("/evaluations/runs")
+async def evaluation_runs(session: SessionDep, _: UserDep, mode: str | None = None,
+                          page: Annotated[int, Query(ge=1)] = 1,
+                          page_size: Annotated[int, Query(ge=1, le=100)] = 20) -> dict:
+    """Per-run recorded metrics, newest first. Demo runs are included only when asked for and are
+    labelled by `mode` — their metrics describe template output, not research quality."""
+    stmt = select(EvaluationResult, Task).join(Task, Task.id == EvaluationResult.task_id)
+    count = select(func.count(EvaluationResult.id)).join(Task, Task.id == EvaluationResult.task_id)
+    if mode in ("live", "demo"):
+        stmt, count = stmt.where(Task.mode == mode), count.where(Task.mode == mode)
+    total = await session.scalar(count) or 0
+    rows = (await session.execute(stmt.order_by(EvaluationResult.created_at.desc(), EvaluationResult.id.desc())
+                                  .offset((page - 1) * page_size).limit(page_size))).all()
+    items = [{"task_id": t.id, "title": t.title, "mode": t.mode, "status": t.status,
+              "created_at": t.created_at.isoformat(), "duration_s": _duration_s(t),
+              "input_tokens": t.input_tokens, "output_tokens": t.output_tokens,
+              "llm_calls": t.llm_calls, "tool_calls": t.tool_calls, "cost_usd": t.cost_usd,
+              "metrics": ev.metrics} for ev, t in rows]
+    return {"items": items, "total": total, "page": page, "page_size": page_size}
 
 
 @router.get("/evaluations/tasks/{task_id}")
