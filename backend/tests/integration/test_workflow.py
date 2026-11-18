@@ -209,6 +209,13 @@ async def test_plan_approval_approve(run) -> None:  # type: ignore[no-untyped-de
     assert approval.kind == "plan" and approval.payload["plan"]["subtasks"]
     await run.app.state.manager.decide_approval(approval.id, True, "looks good")
     assert (await wait_status(tid, {"completed", "failed"})).status == "completed"
+    # The decision is part of the persisted timeline (and so of SSE replay), exactly once.
+    decided = [e for e in await rows(ExecutionEvent, tid) if e.type == "approval_decided"]
+    assert len(decided) == 1
+    assert decided[0].payload == {"approval_id": approval.id, "kind": "plan", "approved": True,
+                                  "comment": "looks good"}
+    types = await event_types(tid)
+    assert types.index("approval_requested") < types.index("approval_decided") < types.index("dispatch")
 
 
 async def test_plan_approval_reject(run) -> None:  # type: ignore[no-untyped-def]
@@ -220,6 +227,8 @@ async def test_plan_approval_reject(run) -> None:  # type: ignore[no-untyped-def
     task = await wait_status(tid, {"rejected", "completed", "failed"})
     assert task.status == "rejected" and task.error_message == "too broad"
     assert run.search.queries == []
+    decided = [e for e in await rows(ExecutionEvent, tid) if e.type == "approval_decided"]
+    assert [(e.payload["approved"], e.payload["comment"]) for e in decided] == [(False, "too broad")]
 
 
 async def test_tool_approval_per_batch(run) -> None:  # type: ignore[no-untyped-def]
@@ -231,6 +240,7 @@ async def test_tool_approval_per_batch(run) -> None:  # type: ignore[no-untyped-
         assert len(pending) == 1 and pending[0].payload["subtasks"] == expected_batch
         await run.app.state.manager.decide_approval(pending[0].id, True, None)
     assert (await wait_status(tid, {"completed", "failed"})).status == "completed"
+    assert (await event_types(tid)).count("approval_decided") == 2  # one per approved batch
 
 
 async def test_research_failures_are_non_fatal(run) -> None:  # type: ignore[no-untyped-def]

@@ -51,9 +51,8 @@ async def _approval(rt: TaskRuntime, *, key: str, kind: str, title: str, payload
     await rt.store.update_task(rt.task_id, status=TaskStatus.AWAITING_APPROVAL)
     await rt.emit("approval_requested", title, {"approval_id": req.id, "kind": kind, **payload})
     decision = interrupt({"approval_id": req.id, "kind": kind, "title": title})
+    # `approval_decided` is published by ExecutionManager.decide_approval when the decision is recorded.
     await rt.store.update_task(rt.task_id, status=TaskStatus.RUNNING)
-    await rt.emit("approval_decided", f"{title}: {'approved' if decision.get('approved') else 'rejected'}",
-                  {"approval_id": req.id, **decision})
     return decision
 
 

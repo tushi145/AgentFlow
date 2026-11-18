@@ -6,14 +6,26 @@ import type {
   ApiErrorBody,
   ApprovalRequest,
   OverviewAnalytics,
+  ReportSummary,
+  ResearchSource,
   SystemStatus,
   TaskCreate,
+  TaskDetail,
   TaskList,
   TaskSummary,
+  TaskUsage,
   User,
+  VerificationResult,
 } from "@/types/api";
 
 export const API_BASE = "/api/v1";
+
+/** Same-origin URLs (the session cookie authenticates them). */
+export const urls = {
+  taskEvents: (id: string) => `${API_BASE}/tasks/${encodeURIComponent(id)}/events`,
+  reportMarkdown: (id: number) => `${API_BASE}/reports/${id}/download.md`,
+  reportPdf: (id: number) => `${API_BASE}/reports/${id}/download.pdf`,
+};
 
 export class ApiError extends Error {
   readonly status: number;
@@ -107,8 +119,17 @@ export const api = {
   retryTask: (id: string) => request<TaskSummary>(`/tasks/${encodeURIComponent(id)}/retry`, { method: "POST" }),
   deleteTask: (id: string) => request<void>(`/tasks/${encodeURIComponent(id)}`, { method: "DELETE" }),
 
+  getTask: (id: string) => request<TaskDetail>(`/tasks/${encodeURIComponent(id)}`),
+  taskSources: (id: string) => request<ResearchSource[]>(`/tasks/${encodeURIComponent(id)}/sources`),
+  taskVerifications: (id: string) => request<VerificationResult[]>(`/tasks/${encodeURIComponent(id)}/verifications`),
+  taskUsage: (id: string) => request<TaskUsage>(`/tasks/${encodeURIComponent(id)}/usage`),
+
+  // reports
+  getReport: (id: number) => request<ReportSummary>(`/reports/${id}`),
+
   // approvals
-  listApprovals: (status = "pending") => request<ApprovalRequest[]>("/approvals", { query: { status } }),
+  listApprovals: (status = "pending", taskId?: string) =>
+    request<ApprovalRequest[]>("/approvals", { query: { status, task_id: taskId } }),
   decideApproval: (id: number, approved: boolean, comment?: string) =>
     request<ApprovalRequest>(`/approvals/${id}/decision`, { method: "POST", body: json({ approved, comment: comment || null }) }),
 

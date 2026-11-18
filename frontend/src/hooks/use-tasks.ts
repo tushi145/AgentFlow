@@ -7,7 +7,39 @@ export const taskKeys = {
   all: ["tasks"] as const,
   list: (params: Record<string, unknown>) => ["tasks", "list", params] as const,
   overview: (mode?: string) => ["analytics", "overview", mode ?? "all"] as const,
+  detail: (id: string) => ["tasks", "detail", id] as const,
+  sources: (id: string) => ["tasks", "detail", id, "sources"] as const,
+  verifications: (id: string) => ["tasks", "detail", id, "verifications"] as const,
+  usage: (id: string) => ["tasks", "detail", id, "usage"] as const,
+  approvals: (id: string) => ["approvals", "task", id] as const,
+  report: (id: number) => ["reports", id] as const,
 };
+
+/* Execution-page queries. They are refreshed by SSE events (see TaskExecutionPage), so they only
+   fall back to polling when `poll` is given (stream not connected). */
+export function useTaskDetail(id: string, poll?: number | false) {
+  return useQuery({ queryKey: taskKeys.detail(id), queryFn: () => api.getTask(id), refetchInterval: poll });
+}
+
+export function useTaskSources(id: string) {
+  return useQuery({ queryKey: taskKeys.sources(id), queryFn: () => api.taskSources(id) });
+}
+
+export function useTaskVerifications(id: string) {
+  return useQuery({ queryKey: taskKeys.verifications(id), queryFn: () => api.taskVerifications(id) });
+}
+
+export function useTaskUsage(id: string) {
+  return useQuery({ queryKey: taskKeys.usage(id), queryFn: () => api.taskUsage(id) });
+}
+
+export function useTaskApprovals(id: string, poll?: number | false) {
+  return useQuery({ queryKey: taskKeys.approvals(id), queryFn: () => api.listApprovals("pending", id), refetchInterval: poll });
+}
+
+export function useReport(id: number | null | undefined) {
+  return useQuery({ queryKey: taskKeys.report(id ?? 0), queryFn: () => api.getReport(id!), enabled: !!id });
+}
 
 /** Invalidate everything derived from task state after a mutation. */
 function useInvalidateTaskData() {

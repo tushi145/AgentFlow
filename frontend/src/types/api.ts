@@ -80,6 +80,127 @@ export interface TaskSummary {
   report_id: number | null;
 }
 
+export interface Subtask {
+  id: number;
+  plan_key: string;
+  title: string;
+  description: string;
+  agent_key: string;
+  depends_on: string[];
+  queries: string[];
+  status: "pending" | "running" | "done" | "failed" | string;
+  iteration: number;
+  error: string | null;
+}
+
+export interface AgentExecution {
+  id: number;
+  agent_key: AgentKey | string;
+  subtask_id: number | null;
+  iteration: number;
+  /** running | completed | failed | cancelled | aborted */
+  status: string;
+  mode: string;
+  provider: string | null;
+  model: string | null;
+  input_tokens: number;
+  output_tokens: number;
+  llm_calls: number;
+  tool_calls: number;
+  cost_usd: number | null;
+  duration_ms: number | null;
+  error_code: string | null;
+  error_message: string | null;
+  started_at: string;
+  finished_at: string | null;
+  output: Record<string, unknown> | null;
+}
+
+export interface TaskDetail extends TaskSummary {
+  limits: Record<string, number | null>;
+  subtasks: Subtask[];
+  agent_executions: AgentExecution[];
+  pending_approval_id: number | null;
+}
+
+export interface ResearchSource {
+  id: number;
+  ref: string;
+  url: string;
+  title: string;
+  domain: string;
+  snippet: string;
+  search_query: string;
+  provider: string;
+  relevance_score: number | null;
+  injection_suspected: boolean;
+  injection_rules: string[];
+  mode: string;
+  retrieved_at: string;
+}
+
+/** Verdict vocabulary of the Verification Agent (backend/app/schemas/agent_io.py). */
+export type Verdict = "supported" | "partially_supported" | "unsupported" | "conflicting" | "unverifiable";
+
+export interface VerificationResult {
+  id: number;
+  iteration: number;
+  claim: string;
+  verdict: Verdict | string;
+  confidence: number;
+  reasoning: string;
+  supporting_refs: string[];
+  conflicting_refs: string[];
+}
+
+export interface UsageTotals {
+  input_tokens: number;
+  output_tokens: number;
+  llm_calls: number;
+  tool_calls: number;
+  cost_usd: number | null;
+  estimated_cost_usd: number | null;
+  cost_note: string | null;
+}
+
+export interface AgentUsage {
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  llm_calls: number;
+  tool_calls: number;
+  cost_usd: number | null;
+}
+
+export interface TaskUsage {
+  per_agent: Record<string, AgentUsage>;
+  totals: UsageTotals;
+  limits: Record<string, number | null>;
+}
+
+export interface ReportSummary {
+  id: number;
+  task_id: string;
+  title: string;
+  summary: string;
+  source_count: number;
+  avg_confidence: number | null;
+  citation_violations: number;
+  mode: string;
+  created_at: string;
+  has_pdf: boolean;
+}
+
+/** One persisted execution event, as streamed over SSE (`event: agentflow`). */
+export interface ExecutionEvent {
+  id: number;
+  task_id: string;
+  type: string;
+  message: string;
+  payload: Record<string, unknown>;
+  created_at: string;
+}
+
 export interface TaskList {
   items: TaskSummary[];
   total: number;

@@ -3,7 +3,21 @@
 - [x] Phase 2 – Backend (agents, LangGraph orchestration, REST + SSE API, reports, evaluation)
 - [x] Phase 3A – Frontend foundation: design system, app shell, auth, system status
 - [x] Phase 3B – Overview, New Task, Active Executions, Execution History (all data from backend APIs)
-- [ ] Phase 3C – next (not started)
+- [x] Phase 3C – Live Execution: workflow graph, SSE timeline (reconnect + replay), sources, verification, approvals, outputs
+- [ ] Phase 3D – next (not started)
+
+### Phase 3C notes
+- Event stream: native EventSource reconnect (Last-Event-ID) + manual `?after=<id>` reconnect with backoff + a
+  35 s heartbeat watchdog (the Vite dev proxy keeps a dead upstream stream open silently; prod proxies may too).
+- Backend fix: `approval_decided` is now published by `ExecutionManager.decide_approval`; previously it was never
+  emitted (the resumed node returned before its emit).
+- The SSE restart test (`e2e/execution-3c.spec.ts`) needs `E2E_BACKEND_RESTART_CMD`; without it the test approves
+  while connected instead. Run that spec in its own Playwright invocation (the restarted server may not outlive
+  the worker on Windows).
+- Verdicts use the backend vocabulary (supported / partially_supported / unsupported / conflicting / unverifiable);
+  there is no separate "contradicted" value — "conflicting" covers it.
+- Report links are downloads (MD/PDF); the in-app report viewer is Phase 3D.
+- Browser tests cover demo mode only (no live API keys configured).
 
 ### Phase 3B notes
 - Live execution is gated on `ANTHROPIC_API_KEY` + `TAVILY_API_KEY`; browser tests so far cover demo mode only.

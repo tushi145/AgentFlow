@@ -16,6 +16,7 @@ const OverviewPage = lazy(() => import("@/pages/OverviewPage"));
 const NewTaskPage = lazy(() => import("@/pages/NewTaskPage"));
 const ActiveExecutionsPage = lazy(() => import("@/pages/ActiveExecutionsPage"));
 const HistoryPage = lazy(() => import("@/pages/HistoryPage"));
+const TaskExecutionPage = lazy(() => import("@/pages/TaskExecutionPage"));
 
 function PageFallback() {
   return (
@@ -50,7 +51,7 @@ export function AppRoutes() {
       <Route element={<AppLayout />}>
         <Route index element={page(<OverviewPage />)} />
         <Route path="tasks/new" element={page(<NewTaskPage />)} />
-        <Route path="tasks/:taskId" element={<StagePlaceholder title="Live Execution" stage="3C" description="Real-time agent workflow over Server-Sent Events." />} />
+        <Route path="tasks/:taskId" element={page(<TaskExecutionPage />)} />
         <Route path="executions" element={page(<ActiveExecutionsPage />)} />
         <Route path="history" element={page(<HistoryPage />)} />
         <Route path="reports" element={<StagePlaceholder title="Reports" stage="3D" description="Generated reports with sources and verification." />} />

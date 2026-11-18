@@ -276,5 +276,12 @@ class ExecutionManager:
             task.status = TaskStatus.RUNNING  # reflect the decision immediately
             await s.commit()
             await s.refresh(req)
+        # Recorded here, where the decision is made: on resume the graph node finds the request already
+        # decided and returns without reaching its interrupt, so it cannot publish this event itself.
+        title = (req.payload or {}).get("title") or "Approval"
+        await self.bus.publish(req.task_id, "approval_decided",
+                               f"{title}: {'approved' if approved else 'rejected'}",
+                               {"approval_id": req.id, "kind": req.kind, "approved": approved,
+                                "comment": req.comment})
         await self.resume(req.task_id, {"approved": approved, "comment": req.comment})
         return req

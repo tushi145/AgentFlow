@@ -56,6 +56,22 @@ export function formatDateTime(iso: string | null | undefined): string {
   }).format(parseApiDate(iso));
 }
 
+/** Wall-clock time with seconds (browser-local), e.g. "14:03:27". */
+export function formatClock(iso: string | null | undefined): string {
+  if (!iso) return DASH;
+  return new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" })
+    .format(parseApiDate(iso));
+}
+
+/** Offset of `iso` from `origin` as "+1.2s" / "+3m 04s". */
+export function formatOffset(iso: string, origin: string | null | undefined): string {
+  if (!origin) return "";
+  const s = (parseApiDate(iso).getTime() - parseApiDate(origin).getTime()) / 1000;
+  if (s < 0) return "";
+  if (s < 60) return `+${s.toFixed(1)}s`;
+  return `+${formatDuration(s)}`;
+}
+
 export function formatRelative(iso: string | null | undefined, now = Date.now()): string {
   if (!iso) return DASH;
   const diff = (now - parseApiDate(iso).getTime()) / 1000;

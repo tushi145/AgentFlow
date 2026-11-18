@@ -1,32 +1,24 @@
-import { Activity, Check, ExternalLink, Hand, Loader2, Search, Square, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { Activity, ExternalLink, Loader2, Square } from "lucide-react";
+import { useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
+import { ApprovalCard } from "@/components/approval-card";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { EmptyState, ErrorState, LoadingRows, PageHeader, SectionTitle } from "@/components/common";
 import { ModeBadge, StatusBadge } from "@/components/status";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
+import { useNow } from "@/hooks/use-now";
 import { usePendingApprovals } from "@/hooks/use-system";
-import { useCancelTask, useDecideApproval, useTaskList } from "@/hooks/use-tasks";
-import { durationBetween, formatCompact, formatCost, formatDuration, formatRelative } from "@/lib/format";
+import { useCancelTask, useTaskList } from "@/hooks/use-tasks";
+import { durationBetween, formatCompact, formatCost, formatDuration } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { errorMessage } from "@/services/api";
-import type { ApprovalRequest, TaskSummary } from "@/types/api";
+import type { TaskSummary } from "@/types/api";
 
 const POLL_MS = 3000;
-
-function useNow(intervalMs = 1000) {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), intervalMs);
-    return () => clearInterval(id);
-  }, [intervalMs]);
-  return now;
-}
 
 /** Real progress = completed graph steps / planned steps (reported by the backend). */
 export function TaskProgress({ task }: { task: TaskSummary }) {
@@ -42,79 +34,6 @@ export function TaskProgress({ task }: { task: TaskSummary }) {
       </div>
       <Progress value={pct} aria-label={`${pct}% of planned steps complete`} className="h-1.5" />
     </div>
-  );
-}
-
-function ApprovalSummary({ a }: { a: ApprovalRequest }) {
-  const p = a.payload as {
-    title?: string; estimated_cost_usd?: number | null;
-    plan?: { subtasks?: { id: string; title: string }[] };
-    queries?: Record<string, string[]>;
-  };
-  if (a.kind === "tools" && p.queries) {
-    const all = Object.values(p.queries).flat();
-    return (
-      <ul className="space-y-1">
-        {all.slice(0, 6).map((q) => (
-          <li key={q} className="flex items-start gap-1.5 text-xs text-muted-foreground"><Search className="mt-0.5 size-3 shrink-0" /><span className="font-mono">{q}</span></li>
-        ))}
-        {all.length > 6 && <li className="text-xs text-muted-foreground">+{all.length - 6} more</li>}
-      </ul>
-    );
-  }
-  const subtasks = p.plan?.subtasks ?? [];
-  return (
-    <div className="space-y-1.5 text-xs text-muted-foreground">
-      {subtasks.length > 0 && (
-        <ol className="list-decimal space-y-0.5 pl-4">
-          {subtasks.slice(0, 5).map((s) => <li key={s.id}>{s.title}</li>)}
-          {subtasks.length > 5 && <li className="list-none">+{subtasks.length - 5} more</li>}
-        </ol>
-      )}
-      <div>Estimated cost: <span className="text-foreground">{p.estimated_cost_usd == null ? "unknown (pricing not configured or demo)" : formatCost(p.estimated_cost_usd)}</span></div>
-    </div>
-  );
-}
-
-function ApprovalCard({ a }: { a: ApprovalRequest }) {
-  const decide = useDecideApproval();
-  const [rejecting, setRejecting] = useState(false);
-  const act = (approved: boolean, comment?: string) =>
-    decide.mutate({ id: a.id, approved, comment }, {
-      onSuccess: () => { toast.success(approved ? "Approved — execution resumed" : "Rejected — execution stopped"); setRejecting(false); },
-      onError: (e) => toast.error(errorMessage(e)),
-    });
-  const kindLabel = { plan: "Plan review", tools: "Search approval", cost: "Cost approval" }[a.kind];
-  return (
-    <Card className="gap-3 border-status-warning/30 py-4">
-      <CardContent className="space-y-3 px-4">
-        <div className="flex flex-wrap items-start justify-between gap-2">
-          <div className="min-w-0 space-y-1">
-            <div className="flex items-center gap-2">
-              <Badge variant="outline" className="border-status-warning/40 bg-status-warning/10 text-status-warning"><Hand className="size-3" />{kindLabel}</Badge>
-              <span className="text-xs text-muted-foreground">{formatRelative(a.created_at)}</span>
-            </div>
-            <p className="text-sm font-medium">{(a.payload as { title?: string }).title ?? kindLabel}</p>
-            <Link to={`/tasks/${a.task_id}`} className="block truncate text-xs text-muted-foreground hover:text-foreground hover:underline">
-              {a.task_title ?? a.task_id}
-            </Link>
-          </div>
-          <div className="flex shrink-0 gap-2">
-            <Button size="sm" variant="outline" onClick={() => setRejecting(true)} disabled={decide.isPending}>
-              <X className="size-3.5" /> Reject
-            </Button>
-            <Button size="sm" onClick={() => act(true)} disabled={decide.isPending}>
-              {decide.isPending ? <Loader2 className="size-3.5 animate-spin" /> : <Check className="size-3.5" />} Approve
-            </Button>
-          </div>
-        </div>
-        <ApprovalSummary a={a} />
-      </CardContent>
-      <ConfirmDialog open={rejecting} onOpenChange={setRejecting} title="Reject and stop this execution?"
-                     description="The task ends with status “rejected”. Work done so far stays in its history."
-                     confirmLabel="Reject" destructive withComment pending={decide.isPending}
-                     onConfirm={(c) => act(false, c)} />
-    </Card>
   );
 }
 
