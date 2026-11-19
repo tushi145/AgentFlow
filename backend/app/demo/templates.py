@@ -45,7 +45,7 @@ def demo_plan(ctx: dict) -> ExecutionPlan:
 def demo_research(ctx: dict) -> ResearchResult:
     refs = ctx.get("refs") or []
     facts = [ExtractedFact(statement=f"[DEMO] Placeholder fact {i + 1} for '{ctx.get('subtask', '')}'.",
-                           source_refs=[r], evidence_quote="[DEMO] synthetic placeholder content")
+                           source_refs=[r], evidence_quote="[DEMO] This is synthetic placeholder content")
              for i, r in enumerate(refs[:2])]
     return ResearchResult(facts=facts, coverage_notes="[DEMO] Template coverage note.",
                           follow_up_queries=[])

@@ -18,6 +18,7 @@ from app.security.content_firewall import SanitizedContent, sanitize
 from app.services.agent_config_service import EffectiveAgentConfig
 from app.services.budget import BudgetGuard
 from app.tools.evidence import EmbedFn
+from app.tools.quality import NEAR_DUPLICATE_JACCARD, Fingerprint, canonical_url
 
 EmitFn = Callable[[str, str, dict[str, Any]], Awaitable[None]]
 PersistSourceFn = Callable[["SourceRecord"], Awaitable[None]]
@@ -44,26 +45,46 @@ class SourceRecord:
 
 
 class SourceRegistry:
-    """Assigns stable task-wide refs (S1, S2, ...) and de-duplicates by URL."""
+    """Assigns stable task-wide refs (S1, S2, ...) and de-duplicates by canonical URL and by
+    near-identical content (syndicated / mirrored copies of the same article)."""
 
     def __init__(self, persist: PersistSourceFn | None = None) -> None:
         self._by_ref: dict[str, SourceRecord] = {}
         self._by_url: dict[str, str] = {}
+        self._prints: dict[str, Fingerprint] = {}
         self._lock = asyncio.Lock()
         self._persist = persist
+        self.duplicates_merged = 0  # content duplicates folded into an existing ref
+
+    def _near_duplicate(self, fp: Fingerprint, flagged: bool) -> str | None:
+        if not fp.shingles:
+            return None
+        for ref, other in self._prints.items():
+            # A copy that adds injected text keeps its own (flagged) identity.
+            if self._by_ref[ref].injection_suspected != flagged:
+                continue
+            if fp.similarity(other) >= NEAR_DUPLICATE_JACCARD:
+                return ref
+        return None
 
     async def add(self, *, url: str, title: str, snippet: str, sanitized: SanitizedContent,
                   search_query: str, provider: str, score: float | None,
                   is_demo: bool) -> tuple[SourceRecord, bool]:
-        """Returns (record, created)."""
-        key = url.rstrip("/")
+        """Returns (record, created). `created` is False for URL or content duplicates."""
+        key = canonical_url(url)
         # Titles come from the web too: sanitise them and merge their injection flags.
         clean_title = sanitize(title, max_chars=300)
         rules = list(dict.fromkeys([*sanitized.matched_rules,
                                     *(f"title:{r}" for r in clean_title.matched_rules)]))
+        fp = Fingerprint.of(sanitized.text)
         async with self._lock:
             if key in self._by_url:
                 return self._by_ref[self._by_url[key]], False
+            dup = self._near_duplicate(fp, bool(rules))
+            if dup is not None:
+                self._by_url[key] = dup
+                self.duplicates_merged += 1
+                return self._by_ref[dup], False
             ref = f"S{len(self._by_ref) + 1}"
             rec = SourceRecord(
                 ref=ref, url=url, title=clean_title.text, snippet=snippet[:1000],
@@ -72,6 +93,7 @@ class SourceRegistry:
                 relevance_score=score, injection_suspected=bool(rules),
                 injection_rules=rules, is_demo=is_demo)
             self._by_ref[ref], self._by_url[key] = rec, ref
+            self._prints[ref] = fp
         if self._persist:
             await self._persist(rec)
         return rec, True
@@ -79,7 +101,8 @@ class SourceRegistry:
     def restore(self, records: list[SourceRecord]) -> None:
         for rec in records:
             self._by_ref[rec.ref] = rec
-            self._by_url[rec.url.rstrip("/")] = rec.ref
+            self._by_url[canonical_url(rec.url)] = rec.ref
+            self._prints[rec.ref] = Fingerprint.of(rec.content)
 
     def get(self, ref: str) -> SourceRecord | None:
         return self._by_ref.get(ref)

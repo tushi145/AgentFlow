@@ -155,6 +155,20 @@ class ExecutionStore:
             await s.commit()
             return res.rowcount or 0
 
+    async def agent_timings(self, task_id: str) -> dict[str, dict]:
+        """Per-agent latency from recorded executions: count, total and max duration (ms)."""
+        async with session_factory()() as s:
+            rows = (await s.execute(select(AgentExecution.agent_key, AgentExecution.duration_ms)
+                                    .where(AgentExecution.task_id == task_id,
+                                           AgentExecution.duration_ms.is_not(None)))).all()
+        out: dict[str, dict] = {}
+        for key, ms in rows:
+            a = out.setdefault(key, {"runs": 0, "total_ms": 0, "max_ms": 0})
+            a["runs"] += 1
+            a["total_ms"] += int(ms)
+            a["max_ms"] = max(a["max_ms"], int(ms))
+        return out
+
     async def per_agent_usage(self, task_id: str) -> dict[str, dict]:
         async with session_factory()() as s:
             rows = (await s.execute(

@@ -142,6 +142,8 @@ async def test_tool_allowlist_enforced_in_code(tmp_path: Path) -> None:
 
 # ------------------------------------------------------------------ research
 LONG = "Acme hires graduate engineers in Bengaluru with a starting salary of 6 LPA. " * 10
+# Distinct page content (identical content at two URLs is merged as a near-duplicate).
+OTHER = "Beta Labs runs a two-year rotational programme for new graduates in Pune and Chennai. " * 10
 
 
 async def test_research_registers_sources_flags_injection_and_drops_bad_citations(tmp_path: Path) -> None:
@@ -181,7 +183,7 @@ async def test_research_handles_search_failure(tmp_path: Path) -> None:
 
 async def test_research_follow_up_round(tmp_path: Path) -> None:
     search = FakeSearch(results={"q1": [hit("https://a.example/1", "A", LONG)],
-                                 "gap q": [hit("https://b.example/2", "B", LONG)]})
+                                 "gap q": [hit("https://b.example/2", "B", OTHER)]})
     n = {"i": 0}
 
     def handler(req):  # type: ignore[no-untyped-def]
@@ -272,8 +274,8 @@ async def test_report_agent_filters_citations_and_lists_only_cited(tmp_path: Pat
                         methodology="m", sections=[ReportSection(heading="Pay", body_markdown="See [S1, S8].")],
                         conclusion="c", limitations=["l"])
     rt, log = make_runtime(tmp_path, FakeLLM(lambda r: draft), FakeSearch())
-    for u in ("https://a.example", "https://b.example"):
-        await rt.sources.add(url=u, title=u, snippet="", sanitized=sanitize(LONG), search_query="q",
+    for u, text in (("https://a.example", LONG), ("https://b.example", OTHER)):
+        await rt.sources.add(url=u, title=u, snippet="", sanitized=sanitize(text), search_query="q",
                              provider="tavily", score=None, is_demo=False)
     out = await ReportAgent(rt).run(
         report_outline=["Pay"], analysis=None, calculations=[], gaps=[],

@@ -119,3 +119,33 @@ async def test_gap_loop_skips_queries_already_executed(run) -> None:  # type: ig
     gap = [s for s in await rows(Subtask, tid) if s.iteration == 1]
     assert [s.queries for s in gap] == [["acme visa policy"]]
     assert run.search.queries.count("acme jobs") == 1
+
+
+async def test_live_cost_cap_with_unpriced_model_fails_clearly_before_any_call(run) -> None:  # type: ignore[no-untyped-def]
+    llm = FakeLLM(Script(), models=[MODEL])
+    await run.start(llm, default_search())
+    tid = await run.submit(limits={"max_cost_usd": 0.5})
+    task = await wait_status(tid, {"completed", "failed"})
+    assert task.status == "failed" and task.error_code == "cost_limit_unenforceable"
+    assert MODEL in task.error_message and llm.calls == []  # nothing was spent
+
+
+async def test_decision_can_never_precede_the_request_event(run, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """Regression: status became awaiting_approval *before* approval_requested was persisted, so a
+    fast client could record approval_decided first (seen once under load)."""
+    await run.start(FakeLLM(Script(), models=[MODEL]), default_search())
+    bus = run.app.state.manager.bus
+    original = bus.publish
+
+    async def slow_request_event(task_id, type_, message="", payload=None, **kw):  # type: ignore[no-untyped-def]
+        if type_ == "approval_requested":
+            await asyncio.sleep(0.5)  # a slow event write
+        return await original(task_id, type_, message, payload, **kw)
+
+    monkeypatch.setattr(bus, "publish", slow_request_event)
+    tid = await run.submit(approval_mode="plan")
+    approval = await _pending_approval(tid)  # decides as soon as the task looks decidable
+    await run.app.state.manager.decide_approval(approval.id, True, None)
+    assert (await wait_status(tid, {"completed", "failed"})).status == "completed"
+    types = await event_types(tid)
+    assert types.index("approval_requested") < types.index("approval_decided")

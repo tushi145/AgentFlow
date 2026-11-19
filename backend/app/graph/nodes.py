@@ -49,8 +49,10 @@ async def _approval(rt: TaskRuntime, *, key: str, kind: str, title: str, payload
     req = await rt.store.get_or_create_approval(rt.task_id, key, kind, {"title": title, **payload})
     if req.status in ("approved", "rejected"):
         return {"approved": req.status == "approved", "comment": req.comment}
-    await rt.store.update_task(rt.task_id, status=TaskStatus.AWAITING_APPROVAL)
+    # Event first, status second: decide_approval only accepts a decision once the task is
+    # AWAITING_APPROVAL, so `approval_decided` can never precede `approval_requested` in the timeline.
     await rt.emit("approval_requested", title, {"approval_id": req.id, "kind": kind, **payload})
+    await rt.store.update_task(rt.task_id, status=TaskStatus.AWAITING_APPROVAL)
     decision = interrupt({"approval_id": req.id, "kind": kind, "title": title})
     # `approval_decided` is published by ExecutionManager.decide_approval when the decision is recorded.
     await rt.store.update_task(rt.task_id, status=TaskStatus.RUNNING)
@@ -194,7 +196,8 @@ async def research_node(inp: ResearchInput, runtime: Runtime[TaskRuntime]) -> di
                                           "source_refs": refs, "failures": out.extras.get("failures")})
     await _progress(rt, done=1, note=f"Subtask {st['id']} complete ({len(facts)} facts).")
     return {"facts": facts, "coverage_notes": [f"{st['title']}: {out.result.coverage_notes}"],
-            "subtasks": {st["id"]: {"status": "done", "source_refs": refs, "fact_count": len(facts)}}}
+            "subtasks": {st["id"]: {"status": "done", "source_refs": refs, "fact_count": len(facts),
+                                    "grounding": out.extras.get("grounding") or {}}}}
 
 
 # ============================================================================ analysis
@@ -409,7 +412,8 @@ async def report_node(state: AgentFlowState, runtime: Runtime[TaskRuntime]) -> d
                   {"report_id": report_id, "citations": len(rendered.cited_refs),
                    "citation_violations": rendered.citation_violations})
     return {"report": {"id": report_id, "title": rendered.title, "cited_refs": rendered.cited_refs,
-                       "citation_violations": rendered.citation_violations}}
+                       "citation_violations": rendered.citation_violations,
+                       "quality": rendered.quality}}
 
 
 async def evaluate_node(state: AgentFlowState, runtime: Runtime[TaskRuntime]) -> dict:
@@ -429,7 +433,10 @@ async def evaluate_node(state: AgentFlowState, runtime: Runtime[TaskRuntime]) ->
         agent_failures=state.get("errors", []), retries=retries,
         iterations=state.get("iteration", 0) + 1,
         budget_exhausted=bool(state.get("budget_exhausted")), completed=bool(report),
-        mode=rt.mode, retrieval_method=state.get("retrieval_method"))
+        mode=rt.mode, retrieval_method=state.get("retrieval_method"),
+        report_quality=report.get("quality") or {}, usage=rt.budget.snapshot(),
+        agent_timings=await rt.store.agent_timings(rt.task_id) if rt.store else {},
+        content_duplicates=rt.sources.duplicates_merged)
     await rt.store.save_evaluation(rt.task_id, metrics)
     await rt.emit("evaluation_completed", "Run quality metrics recorded.", {"metrics": metrics})
     return {"evaluation": metrics}

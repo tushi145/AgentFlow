@@ -19,6 +19,9 @@ WRAPPER_TAG = "untrusted_source"
 
 # Zero-width / bidi control characters commonly used to hide instructions.
 _INVISIBLE = re.compile("[​-‏‪-‮⁠-⁤⁦-⁩﻿­]")
+# Unicode "tag" characters (U+E0000-U+E007F) can smuggle invisible ASCII instructions that some
+# models still read; they have no legitimate use in research text.
+_TAG_CHARS = re.compile("[\U000e0000-\U000e007f]")
 _CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 _TAG_BREAK = re.compile(r"<\s*/?\s*(untrusted_source|system|instructions?|assistant|user)\b",
                         re.IGNORECASE)
@@ -38,6 +41,16 @@ INJECTION_RULES: dict[str, re.Pattern[str]] = {
     "fake_role_marker": re.compile(r"(^|\n)\s*(system|assistant|human|user)\s*:\s", re.I),
     "tool_call_injection": re.compile(r"\"(tool_use|function_call|tool_calls)\"\s*:|<tool_use>", re.I),
     "exfiltration_link": re.compile(r"!\[[^\]]*\]\(https?://[^)]*\?(q|data|d|secret)=", re.I),
+    # Text aimed at *our* pipeline: telling a verifier/judge how to rule or what to cite.
+    "verdict_manipulation": re.compile(
+        r"\b(mark|rate|classify|label|treat|judge|score)\b[^.\n]{0,30}\b(this|these|all)\b"
+        r"[^.\n]{0,20}\b(claims?|statements?|sources?|facts?|content)\b[^.\n]{0,20}\bas\b[^.\n]{0,15}"
+        r"\b(supported|verified|true|accurate|reliable|trustworthy|authoritative|correct)\b"
+        r"|\b(verification|fact[- ]check(ing)?|grading) (agents?|systems?|models?)\b[^.\n]{0,40}"
+        r"\b(must|should)\b", re.I),
+    "citation_manipulation": re.compile(
+        r"\b(always|only|must)\s+cite\s+(this|our|these)\s+(page|site|source|article|document)s?\b"
+        r"|\bcite (this|the following) (page|source|site) as\b", re.I),
     "ai_directed_text": re.compile(
         r"\b(note|message|instruction)s? (to|for) (the )?(ai|llm|assistant|language model|agent)\b",
         re.I),
@@ -55,12 +68,21 @@ class SanitizedContent:
 
 def sanitize(text: str, *, max_chars: int = 6000) -> SanitizedContent:
     text = unicodedata.normalize("NFKC", text or "")
-    invisible = len(_INVISIBLE.findall(text))
+    tag_chars = len(_TAG_CHARS.findall(text))
+    if tag_chars:
+        # Decode the smuggled ASCII so rules can see it, then drop the carrier characters.
+        hidden = "".join(chr(ord(c) - 0xE0000) for c in _TAG_CHARS.findall(text)
+                         if 0x20 <= ord(c) - 0xE0000 < 0x7F)
+        text = _TAG_CHARS.sub("", text)
+    else:
+        hidden = ""
+    invisible = len(_INVISIBLE.findall(text)) + tag_chars
     text = _INVISIBLE.sub("", text)
     text = _CONTROL.sub("", text)
     # Detect on the cleaned (but not yet neutralised) text so hidden tricks are caught.
-    matched = tuple(name for name, pat in INJECTION_RULES.items() if pat.search(text))
-    if invisible >= 5:
+    probe = f"{text}\n{hidden}" if hidden else text
+    matched = tuple(name for name, pat in INJECTION_RULES.items() if pat.search(probe))
+    if invisible >= 5 or tag_chars:
         matched = (*matched, "hidden_characters")
     # Neutralise anything that looks like our wrapper or a chat-role tag.
     text = _TAG_BREAK.sub(lambda m: m.group(0).replace("<", "‹"), text)
