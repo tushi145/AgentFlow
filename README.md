@@ -7,7 +7,9 @@ Markdown/PDF report. The whole execution streams live to the UI.
 
 > 🚧 **Status: Phase 2 (backend), Phase 3A (frontend shell), Phase 3B (Overview, New Task, Active
 > Executions, History), Phase 3C (Live Execution) and Phase 3D (Reports, Agent Configuration, Evaluation,
-> Settings) complete.** See [docs/roadmap.md](docs/roadmap.md).
+> Settings) complete. Phase 4 (advanced AI capabilities: provider hardening, anti-fabrication
+> gates, cost-cap enforcement, evaluation) implemented; see [docs/phase4.md](docs/phase4.md).** See
+> [docs/roadmap.md](docs/roadmap.md).
 
 ## Highlights
 
@@ -50,9 +52,12 @@ Open interactive API docs at <http://localhost:8000/api/docs>. Log in with `ADMI
 cd backend && python -m pytest
 # Real end-to-end run against Anthropic + Tavily (costs a few cents; needs keys)
 python -m pytest -m live -s
+# Offline, free benchmark of the safety gates (quote grounding, injection detection, URL dedup)
+python -m app.evaluation.benchmarks guards
 ```
 
 ## Documentation
 
 - [Architecture and design decisions](docs/architecture.md)
 - [Roadmap](docs/roadmap.md)
+- [Phase 4: advanced AI capabilities, results and limitations](docs/phase4.md)

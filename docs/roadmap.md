@@ -5,7 +5,8 @@
 - [x] Phase 3B – Overview, New Task, Active Executions, Execution History (all data from backend APIs)
 - [x] Phase 3C – Live Execution: workflow graph, SSE timeline (reconnect + replay), sources, verification, approvals, outputs
 - [x] Phase 3D – Reports viewer, Agent configuration, Evaluation dashboard, Settings
-- [ ] Phase 4 – next (not started)
+- [x] Phase 4 – Advanced AI capabilities (implemented; live runs with credentials pending, see [phase4.md](phase4.md))
+- [ ] Phase 5 – next (not started)
 
 ### Phase 3D notes
 - Reports render with react-markdown + remark-gfm. Raw HTML is never rendered (reports contain text derived
@@ -47,6 +48,7 @@
 
 ## Known limitations / follow-ups (tracked)
 - Postgres: migrations run without an automatic backup (a warning is logged); take a `pg_dump` first (Phase 6).
-- Embedding-based evidence retrieval (Gemini) not wired yet; BM25 is used and reported (Phase 4).
+- Embedding-based evidence retrieval (Gemini) not wired yet; BM25 is used and reported.
+- Live (credentialed) Phase 4 verification still to run: `pytest -m live -s` and the live verification benchmark.
 - LangGraph checkpoints use a SQLite file even when the main DB is Postgres (fine for single-node).
 - SSRF guard resolves DNS before connecting; a DNS-rebinding race is theoretically possible (documented).

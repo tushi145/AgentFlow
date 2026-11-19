@@ -13,7 +13,8 @@ from sqlalchemy import func, select
 
 from app.api.deps import SessionDep, SettingsDep, UserDep, limiter
 from app.database.session import session_factory
-from app.evaluation.benchmarks import DATASETS, run_verification_benchmark
+from app.evaluation.benchmarks import (DATASETS, OFFLINE_SUITES, run_guard_benchmark,
+                                      run_verification_benchmark)
 from app.graph.runner import safe_error
 from app.llm.factory import provider_set_for_mode
 from app.models import AgentConfig, AgentExecution, BenchmarkRun, EvaluationResult, Task
@@ -206,11 +207,17 @@ async def run_benchmark(suite: str, request: Request, session: SessionDep, setti
     if suite not in DATASETS:
         raise NotFoundError(f"Unknown benchmark suite '{suite}'.")
     manager = request.app.state.manager
-    providers = provider_set_for_mode("live", settings, manager.live_llms, manager.live_search)
-    cfg_row = await session.scalar(select(AgentConfig).where(AgentConfig.key == "verification"))
-    cfg = resolve_effective(cfg_row, settings)  # type: ignore[arg-type]
-    row = BenchmarkRun(suite=suite, status="running", provider=cfg.provider, model=cfg.model,
-                       metrics={}, item_results=[])
+    offline = suite in OFFLINE_SUITES
+    if offline:  # deterministic code-level checks: no model, no credentials, no cost
+        providers, cfg = None, None
+        row = BenchmarkRun(suite=suite, status="running", provider="deterministic", model=None,
+                           metrics={}, item_results=[])
+    else:
+        providers = provider_set_for_mode("live", settings, manager.live_llms, manager.live_search)
+        cfg_row = await session.scalar(select(AgentConfig).where(AgentConfig.key == "verification"))
+        cfg = resolve_effective(cfg_row, settings)  # type: ignore[arg-type]
+        row = BenchmarkRun(suite=suite, status="running", provider=cfg.provider, model=cfg.model,
+                           metrics={}, item_results=[])
     session.add(row)
     await session.commit()
     await session.refresh(row)
@@ -218,7 +225,8 @@ async def run_benchmark(suite: str, request: Request, session: SessionDep, setti
 
     async def _go() -> None:
         try:
-            res = await run_verification_benchmark(settings, providers, cfg, manager.pricing)
+            res = (run_guard_benchmark() if offline else
+                   await run_verification_benchmark(settings, providers, cfg, manager.pricing))  # type: ignore[arg-type]
             values = dict(status="completed", metrics={**res["metrics"], "tokens": res["tokens"]},
                           item_results=res["item_results"], model=res["model"], cost_usd=res["cost_usd"])
         except Exception as exc:
