@@ -17,6 +17,7 @@ import pytest
 from app.config.settings import Settings
 
 pytestmark = pytest.mark.live
+E2E_MAX_COST_USD = 2.00
 
 
 def _live_settings(tmp_path: Path) -> Settings:
@@ -33,6 +34,14 @@ async def test_live_research_task_end_to_end(tmp_path: Path) -> None:
     from app.main import create_app
 
     settings = _live_settings(tmp_path)
+    from app.services.budget import PricingTable
+
+    # Pre-flight (free): the cost ceiling is only enforceable for a priced model.
+    assert PricingTable.load(settings.pricing_file).price(
+        "anthropic", settings.anthropic_default_model or "") is not None, (
+        f"{settings.anthropic_default_model!r} is not in the pricing file; add it before a paid run.")
+    if settings.admin_password is None:
+        pytest.skip("Live e2e logs in with ADMIN_PASSWORD; it is not set (hash-only config).")
     app = create_app(settings)
     async with app.router.lifespan_context(app):
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t",
@@ -40,10 +49,14 @@ async def test_live_research_task_end_to_end(tmp_path: Path) -> None:
             await c.post("/api/v1/auth/login", json={"username": settings.admin_username,
                                                      "password": settings.admin_password.get_secret_value()})  # type: ignore[union-attr]
             r = await c.post("/api/v1/tasks", json={
+                "mode": "live",  # explicit: never demo
                 "prompt": "Identify three AI companies that run graduate (fresher) hiring programmes "
                           "in India and summarise the roles they offer, with sources.",
                 "limits": {"max_subtasks": 3, "max_searches_per_subtask": 2, "max_iterations": 1,
-                           "max_llm_calls": 15, "max_total_tokens": 250_000}})
+                           "max_llm_calls": 15, "max_total_tokens": 250_000,
+                           # Hard spending ceiling (LLM + search), enforced before every call.
+                           # Requires ANTHROPIC_DEFAULT_MODEL to be in the pricing file.
+                           "max_cost_usd": E2E_MAX_COST_USD}})
             assert r.status_code == 201, r.text
             tid = r.json()["id"]
             for _ in range(900):
@@ -53,6 +66,7 @@ async def test_live_research_task_end_to_end(tmp_path: Path) -> None:
                 await asyncio.sleep(1)
             assert t["status"] == "completed", t.get("error_message")
             assert t["mode"] == "live" and t["input_tokens"] > 0
+            assert t["cost_usd"] is not None and t["cost_usd"] <= E2E_MAX_COST_USD
             sources = (await c.get(f"/api/v1/tasks/{tid}/sources")).json()
             assert sources and all(s["url"].startswith("http") for s in sources)
             report = (await c.get(f"/api/v1/reports/{t['report_id']}")).json()

@@ -74,13 +74,16 @@ def score(items: list[dict], predictions: dict[str, dict]) -> dict[str, Any]:
 
 
 async def run_verification_benchmark(settings: Settings, providers: ProviderSet,
-                                     config: EffectiveAgentConfig, pricing: PricingTable) -> dict[str, Any]:
+                                     config: EffectiveAgentConfig, pricing: PricingTable, *,
+                                     max_cost_usd: float | None = None) -> dict[str, Any]:
+    """`max_cost_usd` is a hard ceiling (enforced before each call; needs the model priced)."""
     if providers.mode != "live":
         raise ValueError("Benchmarks require live providers.")
     items = load_dataset("verification")
     limits = TaskLimits(max_total_tokens=400_000, max_llm_calls=12, max_tool_calls=10,
-                        timeout_seconds=600, max_iterations=1)
-    budget = BudgetGuard(limits, pricing, final_reserve_tokens=0, final_reserve_calls=0)
+                        timeout_seconds=600, max_iterations=1, max_cost_usd=max_cost_usd)
+    budget = BudgetGuard(limits, pricing, final_reserve_tokens=0, final_reserve_calls=0,
+                         final_reserve_cost_usd=0.0)
     sources = SourceRegistry()
     claims: list[Claim] = []
     id_map: dict[str, str] = {}

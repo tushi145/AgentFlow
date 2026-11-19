@@ -5,8 +5,20 @@
 - [x] Phase 3B – Overview, New Task, Active Executions, Execution History (all data from backend APIs)
 - [x] Phase 3C – Live Execution: workflow graph, SSE timeline (reconnect + replay), sources, verification, approvals, outputs
 - [x] Phase 3D – Reports viewer, Agent configuration, Evaluation dashboard, Settings
-- [x] Phase 4 – Advanced AI capabilities (implemented; live runs with credentials pending, see [phase4.md](phase4.md))
-- [ ] Phase 5 – next (not started)
+- [x] Phase 4 – Advanced AI capabilities: **implemented and verified offline** (see [phase4.md](phase4.md))
+- [ ] Live AI integration & end-to-end validation – **pending**: test suite and spend caps ready, awaiting
+      API keys and approval to run paid tests (runbook: [phase4.md § Live verification runbook](phase4.md#live-verification-runbook))
+- [ ] Phase 5 – not started
+
+### Live verification status
+| Check | Status |
+|---|---|
+| Credential-free real-API checks (invalid keys, timeout) | ✅ passed against real Anthropic/Tavily endpoints |
+| Model listing + default-model validation | ⏳ pending (needs `ANTHROPIC_API_KEY`) |
+| Structured output, all 5 agent schemas | ⏳ pending (needs `ANTHROPIC_API_KEY`) |
+| Real Tavily search | ⏳ pending (needs `TAVILY_API_KEY`) |
+| Five-agent live end-to-end run (≤ $2.00 hard cap) | ⏳ pending (needs both keys) |
+| Live verification benchmark, 26 items (≤ $1.50 hard cap) | ⏳ pending (needs `ANTHROPIC_API_KEY`) |
 
 ### Phase 3D notes
 - Reports render with react-markdown + remark-gfm. Raw HTML is never rendered (reports contain text derived
@@ -49,6 +61,6 @@
 ## Known limitations / follow-ups (tracked)
 - Postgres: migrations run without an automatic backup (a warning is logged); take a `pg_dump` first (Phase 6).
 - Embedding-based evidence retrieval (Gemini) not wired yet; BM25 is used and reported.
-- Live (credentialed) Phase 4 verification still to run: `pytest -m live -s` and the live verification benchmark.
+- Live (credentialed) verification still to run; see the status table above.
 - LangGraph checkpoints use a SQLite file even when the main DB is Postgres (fine for single-node).
 - SSRF guard resolves DNS before connecting; a DNS-rebinding race is theoretically possible (documented).

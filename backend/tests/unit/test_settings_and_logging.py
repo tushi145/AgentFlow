@@ -54,3 +54,35 @@ def test_effective_config_precedence(tmp_path: Path, monkeypatch: pytest.MonkeyP
     assert resolve_effective(_row(), s).model == "env-override"
     eff = resolve_effective(_row(provider="anthropic", model="db-model"), s)
     assert eff.model == "db-model"  # DB setting wins over env
+
+
+def test_tracebacks_are_redacted() -> None:
+    import io
+    import logging
+
+    from app.utils.logging import RedactingFilter, RedactingFormatter
+
+    buf = io.StringIO()
+    handler = logging.StreamHandler(buf)
+    handler.addFilter(RedactingFilter())
+    handler.setFormatter(RedactingFormatter("%(message)s"))
+    log = logging.getLogger("redaction-probe")
+    log.handlers, log.propagate = [handler], False
+    try:
+        raise RuntimeError("upstream said: bad key sk-ant-api03-ABCDEFGH12345678 / tvly-ZYXWVUTS98765432")
+    except RuntimeError:
+        log.exception("call failed")
+    out = buf.getvalue()
+    assert "Traceback" in out and "ABCDEFGH12345678" not in out and "ZYXWVUTS98765432" not in out
+
+
+def test_agent_model_override_is_read_from_env_file(tmp_path: Path) -> None:
+    """Regression: overrides were read via os.environ only, so values in .env were ignored."""
+    from app.config.settings import Settings
+
+    env = tmp_path / ".env"
+    env.write_text("AGENT_MODEL_REPORT=anthropic:claude-sonnet-5-5\n"
+                   "ANTHROPIC_DEFAULT_MODEL=claude-opus-5-5\n", encoding="utf-8")
+    s = Settings(_env_file=env)
+    assert resolve_effective(_row(key="report"), s).model == "claude-sonnet-5-5"
+    assert resolve_effective(_row(key="planner"), s).model == "claude-opus-5-5"

@@ -106,3 +106,42 @@ async def test_end_to_end_run_records_grounding_quality_and_cost(run) -> None:  
     assert cost["cost_usd"] is None and cost["cost_complete"] is False  # test model is unpriced
     assert {"planner", "research", "analysis", "verification", "report"} <= set(cost["per_agent"])
     assert all("latency_ms" in v for v in cost["per_agent"].values())
+
+
+async def test_verification_benchmark_cost_ceiling_stops_spending(tmp_path: Path) -> None:
+    from app.evaluation.benchmarks import run_verification_benchmark
+    from app.llm.base import LLMResult, Usage
+    from app.llm.factory import ProviderSet
+    from app.schemas.agent_io import VerificationReport
+    from app.services.agent_config_service import EffectiveAgentConfig
+    from app.services.budget import BudgetExceeded, PricingTable
+    from tests.fakes import FakeSearch
+
+    class GreedyLLM:
+        """Worst case a real API allows: every call spends its entire output allowance."""
+        name, is_demo = "anthropic", False
+
+        def __init__(self) -> None:
+            self.calls: list = []
+
+        async def generate(self, req):  # type: ignore[no-untyped-def]
+            self.calls.append(req)
+            return LLMResult(parsed=VerificationReport(verdicts=[], sufficient=True, sufficiency_reasoning="x"),
+                             usage=Usage(100, req.max_output_tokens), provider="anthropic", model="m",
+                             stop_reason="end_turn", request_id=None)
+
+        async def list_models(self):  # type: ignore[no-untyped-def]
+            return []
+
+    llm = GreedyLLM()
+    pricing = PricingTable({"llm": {"anthropic": {"m": {"input_per_mtok": 4.0, "output_per_mtok": 20.0}}},
+                            "search": {"tavily": {"usd_per_credit": 0.008}}})
+    cfg = EffectiveAgentConfig(key="verification", enabled=True, provider="anthropic", model="m",
+                               effort=None, max_output_tokens=12000, instructions="",
+                               max_retries=0, timeout_s=60)
+    providers = ProviderSet(mode="live", llms={"anthropic": llm}, search=FakeSearch())
+    with pytest.raises(BudgetExceeded):  # one full call would cost $0.24 > the $0.20 ceiling
+        await run_verification_benchmark(make_settings(tmp_path), providers, cfg, pricing,
+                                         max_cost_usd=0.20)
+    spent = sum(pricing.llm_cost("anthropic", "m", Usage(100, c.max_output_tokens)) or 0 for c in llm.calls)
+    assert llm.calls and spent <= 0.20

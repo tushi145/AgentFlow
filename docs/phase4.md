@@ -144,3 +144,28 @@ agent's model, tokens, cost and duration plus the run's grounding, quality and c
   them). That's intentionally out of scope for this phase.
 - Carried over: DNS-rebinding window in the SSRF guard; LangGraph checkpoints in SQLite; BM25
   evidence retrieval (no embeddings).
+
+## Live verification runbook
+
+Paid tests are opt-in (`-m live`); the normal `pytest` run never selects them. Every live test builds
+real providers explicitly (`mode="live"`, `AnthropicProvider`, `TavilySearch`) and there is no code path
+that substitutes demo providers: a missing key is a **skip**, a bad key a **failure**.
+
+**Required in `.env` (repo root or `backend/`):**
+`ANTHROPIC_API_KEY`, `ANTHROPIC_DEFAULT_MODEL` (must be in `app/config/pricing.json`, e.g.
+`claude-opus-5-5` or `claude-sonnet-5-5`), `TAVILY_API_KEY`, and `ADMIN_PASSWORD` (the e2e test logs in).
+
+**Free readiness check** (no API calls): `GET /api/v1/system/status` reports `live_mode_available: true`.
+
+| # | Command (from `backend/`) | Calls | Cost cap |
+|---|---|---|---|
+| 1 | `python -m pytest -m live -s -k "invalid_key or timeout"` | rejected requests only | free |
+| 2 | `python -m pytest -m live -s -k model_listing` | 1 models.list | free |
+| 3 | `python -m pytest -m live -s -k structured_output` | 5 Anthropic calls | ≤ ~$0.62 worst case (5 × 6K output) |
+| 4 | `python -m pytest -m live -s -k tavily_search` | 1 Tavily search | 1 credit |
+| 5 | `python -m pytest -m live -s -k end_to_end` | ≤ 15 LLM calls, ≤ 6 searches | **hard cap $2.00** |
+| 6 | `python -m pytest -m live -s -k verification_benchmark` | 3 batched calls (+ retries) | **hard cap $1.50** |
+
+Estimates use the bundled list prices (Opus 5.5 $4/$20 per MTok; thinking tokens bill as output;
+Tavily $0.008/credit). Typical totals are well under the caps: structured outputs about $0.05–0.25, end-to-end
+about $0.60–1.20, benchmark about $0.20–0.50, about 7 Tavily credits. With `claude-sonnet-5-5` roughly half.

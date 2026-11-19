@@ -133,3 +133,39 @@ async def test_live_tavily_search_returns_real_sources() -> None:
     assert not resp.is_demo
     print("\nLIVE tavily:", [(h.domain, round(h.score or 0, 2), len(h.raw_content)) for h in resp.hits])
 
+
+# ----------------------------------------------------------------------------- verification benchmark
+BENCHMARK_MAX_COST_USD = 1.50
+
+
+@needs_anthropic
+async def test_live_verification_benchmark() -> None:
+    """Real Verification Agent on the 26 labelled items, explicitly in live mode, hard-capped."""
+    from app.evaluation.benchmarks import run_verification_benchmark
+    from app.llm.factory import ProviderSet
+    from app.services.agent_config_service import EffectiveAgentConfig
+
+    model = SETTINGS.anthropic_default_model or ""
+    pricing = PricingTable.load(SETTINGS.pricing_file)
+    assert pricing.price("anthropic", model) is not None, f"{model!r} is not in the pricing file"
+    llm = AnthropicProvider(SETTINGS.anthropic_api_key.get_secret_value(),  # type: ignore[union-attr]
+                            enable_fallbacks=SETTINGS.anthropic_enable_fallbacks)
+    # The benchmark never searches; a placeholder search client keeps the provider set explicit-live.
+    providers = ProviderSet(mode="live", llms={"anthropic": llm},
+                            search=TavilySearch("unused-benchmark-never-searches"))
+    cfg = EffectiveAgentConfig(key="verification", enabled=True, provider="anthropic", model=model,
+                               effort=None, max_output_tokens=12000, instructions="",
+                               max_retries=2, timeout_s=180)
+    t0 = time.monotonic()
+    res = await run_verification_benchmark(SETTINGS, providers, cfg, pricing,
+                                           max_cost_usd=BENCHMARK_MAX_COST_USD)
+    m = res["metrics"]
+    print(f"\nLIVE verification benchmark: model={res['model']} items={m['items']} "
+          f"accuracy={m['accuracy']} binary={m['binary_accuracy']} brier={m['brier_score']} "
+          f"tokens={res['tokens']} cost=${res['cost_usd']} time={time.monotonic() - t0:.0f}s")
+    for r in res["item_results"]:
+        if r["predicted"] != r["gold"]:
+            print(f"  miss {r['id']}: gold={r['gold']} predicted={r['predicted']} conf={r['confidence']}")
+    assert m["items"] == 26 and all(r["predicted"] for r in res["item_results"])
+    assert res["cost_usd"] is not None and res["cost_usd"] <= BENCHMARK_MAX_COST_USD
+

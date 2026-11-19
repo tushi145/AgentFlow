@@ -52,6 +52,13 @@ class Settings(BaseSettings):
     gemini_api_key: SecretStr | None = None
     gemini_default_model: str | None = None
     llm_request_timeout_seconds: float = 180.0
+    # Optional per-agent "provider:model" overrides (Agent Configuration in the UI wins). Declared
+    # as fields so they are read from `.env` too, not only from the process environment.
+    agent_model_planner: str | None = None
+    agent_model_research: str | None = None
+    agent_model_analysis: str | None = None
+    agent_model_verification: str | None = None
+    agent_model_report: str | None = None
 
     # Search
     tavily_api_key: SecretStr | None = None

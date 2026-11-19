@@ -57,7 +57,8 @@ def resolve_effective(row: AgentConfig, settings: Settings) -> EffectiveAgentCon
 
     provider, model = row.provider, row.model
     if not (provider and model):
-        override = os.environ.get(f"AGENT_MODEL_{row.key.upper()}", "").strip()
+        override = (getattr(settings, f"agent_model_{row.key}", None)
+                    or os.environ.get(f"AGENT_MODEL_{row.key.upper()}", "")).strip()
         if override and ":" in override:
             o_provider, o_model = override.split(":", 1)
             provider = provider or o_provider.strip()
