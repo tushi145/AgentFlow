@@ -14,6 +14,7 @@ from sqlalchemy import select
 from app.database.session import session_factory
 from app.models.execution import ExecutionEvent
 from app.services.db_lock import db_write_lock
+from app.utils.logging import redact, redact_obj
 
 log = logging.getLogger(__name__)
 
@@ -47,8 +48,10 @@ class EventBus:
                       agent_execution_id: int | None = None) -> EventOut:
         async with db_write_lock():
             async with session_factory()() as s:
-                row = ExecutionEvent(task_id=task_id, type=type_, message=message[:2000],
-                                     payload=payload or {}, agent_execution_id=agent_execution_id)
+                # Events are persisted and streamed to the browser: last-line secret redaction.
+                row = ExecutionEvent(task_id=task_id, type=type_, message=redact(message)[:2000],
+                                     payload=redact_obj(payload or {}),
+                                     agent_execution_id=agent_execution_id)
                 s.add(row)
                 await s.commit()
                 await s.refresh(row)

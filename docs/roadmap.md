@@ -14,8 +14,10 @@
 | Check | Status |
 |---|---|
 | Credential-free real-API checks (invalid keys, timeout) | ✅ passed against real Anthropic/Tavily endpoints |
+| Offline dry run of the five agent tests, the e2e test and the benchmark (fakes, sockets blocked) | ✅ passed |
+| Fake-key secret-exposure tests (API, errors, events, logs, tracebacks) | ✅ passed |
 | Model listing + default-model validation | ⏳ pending (needs `ANTHROPIC_API_KEY`) |
-| Structured output, all 5 agent schemas | ⏳ pending (needs `ANTHROPIC_API_KEY`) |
+| Planner / Research / Analysis / Verification / Report agents, each run live (≤ $0.40 each) | ⏳ pending (Research also needs `TAVILY_API_KEY`) |
 | Real Tavily search | ⏳ pending (needs `TAVILY_API_KEY`) |
 | Five-agent live end-to-end run (≤ $2.00 hard cap) | ⏳ pending (needs both keys) |
 | Live verification benchmark, 26 items (≤ $1.50 hard cap) | ⏳ pending (needs `ANTHROPIC_API_KEY`) |

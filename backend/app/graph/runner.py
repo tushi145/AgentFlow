@@ -13,6 +13,7 @@ from app.agents.base import AgentOutput, BaseAgent
 from app.agents.runtime import TaskRuntime
 from app.llm.base import LLMError
 from app.services.budget import BudgetExceeded
+from app.utils.logging import redact
 
 log = logging.getLogger(__name__)
 A = TypeVar("A", bound=BaseAgent)
@@ -28,12 +29,14 @@ def _serialisable(result: Any) -> Any:
 
 def safe_error(exc: BaseException) -> tuple[str, str]:
     """(code, message) safe to store and show — never raw tracebacks or secrets."""
+    # Messages are stored on the task, published as events and returned by the API: redact them
+    # in case a provider ever echoes a credential in its error text.
     if isinstance(exc, BudgetExceeded):
-        return f"budget_{exc.limit}", str(exc)
+        return f"budget_{exc.limit}", redact(str(exc))
     if isinstance(exc, LLMError):
-        return exc.code, str(exc)[:500]
+        return exc.code, redact(str(exc))[:500]
     if isinstance(exc, PermissionError):
-        return "tool_not_allowed", str(exc)[:300]
+        return "tool_not_allowed", redact(str(exc))[:300]
     return "internal_error", f"Unexpected {type(exc).__name__} in agent execution."
 
 

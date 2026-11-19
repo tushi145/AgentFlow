@@ -107,7 +107,7 @@ Credential-free real-API checks were run against the actual endpoints (`pytest -
 | Anthropic, 1 ms client timeout | `timeout`, retryable ✅ |
 | Tavily, invalid key | `search_auth_failed`, not retryable ✅ |
 | Model listing / default-model validation | skipped: no `ANTHROPIC_API_KEY` |
-| Structured output for all 5 agent schemas | skipped: no `ANTHROPIC_API_KEY` |
+| Each of the five agents, run for real | skipped: no `ANTHROPIC_API_KEY` |
 | Real Tavily search | skipped: no `TAVILY_API_KEY` |
 | Live end-to-end run (all five agents) | skipped: no keys |
 | Live verification benchmark | not run: needs keys |
@@ -147,25 +147,72 @@ agent's model, tokens, cost and duration plus the run's grounding, quality and c
 
 ## Live verification runbook
 
-Paid tests are opt-in (`-m live`); the normal `pytest` run never selects them. Every live test builds
-real providers explicitly (`mode="live"`, `AnthropicProvider`, `TavilySearch`) and there is no code path
-that substitutes demo providers: a missing key is a **skip**, a bad key a **failure**.
+Paid tests are opt-in (`-m live`); a normal `pytest` run never selects them. Every live test builds
+real providers explicitly (`mode="live"`, `AnthropicProvider`, `TavilySearch`). No code path
+substitutes demo providers: a missing key is a **skip**, a bad key is a **failure**. Every paid
+test has a hard spending ceiling that is enforced before each call.
 
-**Required in `.env` (repo root or `backend/`):**
-`ANTHROPIC_API_KEY`, `ANTHROPIC_DEFAULT_MODEL` (must be in `app/config/pricing.json`, e.g.
-`claude-opus-5-5` or `claude-sonnet-5-5`), `TAVILY_API_KEY`, and `ADMIN_PASSWORD` (the e2e test logs in).
+### Provider configuration (`.env` in the repo root or `backend/`)
 
-**Free readiness check** (no API calls): `GET /api/v1/system/status` reports `live_mode_available: true`.
-
-| # | Command (from `backend/`) | Calls | Cost cap |
+| Variable | Required for live? | Default | Purpose |
 |---|---|---|---|
-| 1 | `python -m pytest -m live -s -k "invalid_key or timeout"` | rejected requests only | free |
-| 2 | `python -m pytest -m live -s -k model_listing` | 1 models.list | free |
-| 3 | `python -m pytest -m live -s -k structured_output` | 5 Anthropic calls | ≤ ~$0.62 worst case (5 × 6K output) |
-| 4 | `python -m pytest -m live -s -k tavily_search` | 1 Tavily search | 1 credit |
-| 5 | `python -m pytest -m live -s -k end_to_end` | ≤ 15 LLM calls, ≤ 6 searches | **hard cap $2.00** |
-| 6 | `python -m pytest -m live -s -k verification_benchmark` | 3 batched calls (+ retries) | **hard cap $1.50** |
+| `ANTHROPIC_API_KEY` | **yes** | – | Claude API key (secret; never logged or returned) |
+| `ANTHROPIC_DEFAULT_MODEL` | **yes** | `claude-opus-5-5` in `.env.example`; none in code | Model for every agent unless overridden; validated against the live model list and must be in the pricing file when a cost cap is set |
+| `TAVILY_API_KEY` | **yes** | – | Tavily search key (secret) |
+| `DEFAULT_LLM_PROVIDER` | no | `anthropic` | Provider used by agents without an override |
+| `ANTHROPIC_ENABLE_FALLBACKS` | no | `true` | Server-side refusal fallback (sent only to models that support it) |
+| `AGENT_MODEL_PLANNER` / `_RESEARCH` / `_ANALYSIS` / `_VERIFICATION` / `_REPORT` | no | unset | Per-agent `provider:model`; Agent Configuration in the UI takes precedence |
+| `LLM_REQUEST_TIMEOUT_SECONDS` | no | `180` | Client default timeout; each agent call uses its own `timeout_s` (default 240, editable per agent in the UI) |
+| `SEARCH_CREDITS_PER_QUERY` | no | `1` | Tavily credits per `basic` search (used for cost) |
+| `MAX_PARALLEL_SEARCHES` | no | `4` | Concurrent searches per task |
+| `PRICING_FILE` | no | bundled `app/config/pricing.json` | USD prices; unpriced models report cost `null` |
+| `DEFAULT_MAX_COST_USD` | no | unset | Per-task hard cost cap |
+| `ADMIN_PASSWORD` | for the live e2e test | `admin` (dev) | The e2e test logs in through the API |
 
-Estimates use the bundled list prices (Opus 5.5 $4/$20 per MTok; thinking tokens bill as output;
-Tavily $0.008/credit). Typical totals are well under the caps: structured outputs about $0.05–0.25, end-to-end
-about $0.60–1.20, benchmark about $0.20–0.50, about 7 Tavily credits. With `claude-sonnet-5-5` roughly half.
+**Retries (not env-configurable):**
+- LLM calls: per-agent `max_retries` (default 2, set in the UI) with full-jitter exponential
+  backoff (≤ 30 s) that never waits less than a server `retry-after` (capped at 60 s). Only
+  rate-limit, overload, 5xx, timeout and connection errors are retried.
+- Bounded repair rounds: at most one schema repair and one truncation retry per call.
+- Tavily searches: 3 attempts. Page fetches: 2 attempts.
+
+Free readiness check (makes no API calls): `GET /api/v1/system/status` reports `live_mode_available: true`.
+
+### Execution order (from `backend/`; stop at the first failure)
+
+| # | What | Command | Paid calls | Hard cap |
+|---|---|---|---|---|
+| 0 | Real-endpoint error handling | `python -m pytest -m live -s -k "invalid_key or timeout"` | none (rejected requests) | free |
+| 1 | Anthropic model listing | `python -m pytest -m live -s -k model_listing` | `models.list` only | free |
+| 2 | Planner | `python -m pytest -m live -s -k agent_planner` | 1 LLM call | $0.40 |
+| 3 | Tavily search | `python -m pytest -m live -s -k tavily_search` | 1 search | 1 credit |
+| 4 | Research (Tavily + LLM) | `python -m pytest -m live -s -k agent_research` | 1 search, 1–2 LLM calls | $0.40 |
+| 5 | Analysis | `python -m pytest -m live -s -k agent_analysis` | 1 LLM call | $0.40 |
+| 6 | Verification | `python -m pytest -m live -s -k agent_verification` | 1 LLM call | $0.40 |
+| 7 | Report generation | `python -m pytest -m live -s -k agent_report` | 1 LLM call | $0.40 |
+| 8 | Five-agent end-to-end | `python -m pytest -m live -s -k end_to_end` | ≤ 15 LLM calls, ≤ 6 searches | $2.00 |
+| 9 | Verification benchmark | `python -m pytest -m live -s -k verification_benchmark` | 3 batched calls (+ retries) | $1.50 |
+
+Each step prints its model, tokens, cost, retries and latency. Agent steps print their parsed
+output (plan, grounded facts, claims, verdicts, report). Step 8 prints every agent execution and
+the run metrics. Step 9 prints accuracy, binary accuracy, Brier score and each mismatch.
+
+### Estimated cost (bundled list prices; thinking tokens bill as output)
+
+| Step | Opus 5.5 ($4/$20) | Sonnet 5.5 ($2/$10) | Notes |
+|---|---|---|---|
+| 0–1 | $0 | $0 | |
+| 2, 5–7 (each) | typically $0.02–0.10; worst case $0.17–0.39 | about half | worst case = the agent's full output limit (8K planner; 12K research, analysis, verification; 16K report) |
+| 3–4 | ≤ $0.40 + 1–2 credits | | Tavily $0.008/credit (check against your plan) |
+| 8 | estimator upper bound ≈ $1.01, typically $0.60–1.20 | ≈ $0.53 | capped at $2.00 including search |
+| 9 | typically $0.20–0.50 | about half | capped at $1.50 |
+| **All** | **about $1.5–3 typical**; ≤ $5.50 + about 8 credits worst case | about half | |
+
+Haiku 5.5 is priced ($0.10/$0.50, long-context tier above 100K prompt tokens) but has no
+server-side refusal fallback. Its pricing does not include a cache-read rate, which is not used.
+
+### Offline dry runs (done; no network)
+Steps 2 and 4–9 were executed with fake providers and all sockets blocked, to make sure the
+tests themselves are correct before any paid run. That dry run found and fixed a console-encoding
+crash that would have failed the Report test *after* its paid call on Windows
+(`tests/live/conftest.py`).

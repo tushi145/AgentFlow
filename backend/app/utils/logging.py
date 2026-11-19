@@ -27,6 +27,17 @@ def redact(text: str) -> str:
     return text
 
 
+def redact_obj(obj: object) -> object:
+    """Recursively redact strings inside JSON-like structures (event payloads, error details)."""
+    if isinstance(obj, str):
+        return redact(obj)
+    if isinstance(obj, dict):
+        return {k: redact_obj(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [redact_obj(v) for v in obj]
+    return obj
+
+
 class RedactingFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         record.request_id = request_id_var.get()

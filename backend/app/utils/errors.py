@@ -10,7 +10,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app.utils.logging import request_id_var
+from app.utils.logging import redact, redact_obj, request_id_var
 
 log = logging.getLogger(__name__)
 
@@ -53,9 +53,10 @@ class ModelValidationError(AppError):
 
 
 def _envelope(status: int, code: str, message: str, details: dict | None = None) -> JSONResponse:
-    body: dict = {"error": {"code": code, "message": message, "request_id": request_id_var.get()}}
+    body: dict = {"error": {"code": code, "message": redact(message),
+                            "request_id": request_id_var.get()}}
     if details:
-        body["error"]["details"] = details
+        body["error"]["details"] = redact_obj(details)
     return JSONResponse(status_code=status, content=body)
 
 
