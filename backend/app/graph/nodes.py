@@ -17,6 +17,7 @@ from app.agents.verification import VerificationAgent
 from app.evaluation.metrics import compute_run_metrics
 from app.graph.runner import run_agent, safe_error
 from app.graph.state import AgentFlowState, ResearchInput
+from app.llm.base import LLMError
 from app.models.task import TaskStatus
 from app.schemas.agent_io import AnalysisResult, Claim, ExecutionPlan, ExtractedFact
 from app.services.budget import BudgetExceeded, estimate_run_cost
@@ -206,8 +207,7 @@ async def analysis_node(state: AgentFlowState, runtime: Runtime[TaskRuntime]) ->
         await _progress(rt, done=2)
         return {"analysis": None, "claims": [], "calculations": []}
     if not _enabled(rt, "analysis"):
-        claims = [Claim(id=f"c{i + 1}", statement=f["statement"], source_refs=f["source_refs"],
-                        importance="medium").model_dump() for i, f in enumerate(facts[:24])]
+        claims = _passthrough_claims(facts)
         await rt.emit("agent_skipped", "Analysis Agent disabled — facts passed through as claims.",
                       {"agent": "analysis"})
         await _progress(rt, done=1)
@@ -223,10 +223,30 @@ async def analysis_node(state: AgentFlowState, runtime: Runtime[TaskRuntime]) ->
         await _progress(rt, done=1)
         return {"budget_exhausted": True, "budget_note": str(exc),
                 "errors": [{"agent": "analysis", "code": f"budget_{exc.limit}", "message": str(exc)}]}
+    except LLMError as exc:
+        # Failure recovery: research already succeeded, so keep going with the raw facts as claims
+        # (they are still verified) and disclose the degradation in the report and metrics.
+        code, msg = safe_error(exc)
+        await rt.emit("agent_degraded", f"Analysis Agent failed ({code}); continuing with "
+                      "extracted facts as claims.", {"agent": "analysis", "error_code": code})
+        await _progress(rt, done=1)
+        return {"analysis": None, "claims": _passthrough_claims(facts), "calculations": [],
+                "errors": [{"agent": "analysis", "code": code, "message": msg, "degraded": True}]}
     await _progress(rt, done=1, note="Analysis complete.")
     result: AnalysisResult = out.result
     return {"analysis": result.model_dump(), "claims": [c.model_dump() for c in result.claims],
             "calculations": out.extras.get("calculations", [])}
+
+
+def _passthrough_claims(facts: list[dict]) -> list[dict]:
+    return [Claim(id=f"c{i + 1}", statement=f["statement"], source_refs=f["source_refs"],
+                  importance="medium").model_dump() for i, f in enumerate(facts[:24])]
+
+
+def _unverified(claims: list[Claim], reasoning: str) -> list[dict]:
+    return [{"claim_id": c.id, "claim": c.statement, "verdict": "unverifiable", "confidence": 0.0,
+             "importance": c.importance, "source_refs": c.source_refs, "reasoning": reasoning,
+             "supporting_refs": [], "conflicting_refs": []} for c in claims]
 
 
 # ============================================================================ verification
@@ -238,10 +258,7 @@ async def verify_node(state: AgentFlowState, runtime: Runtime[TaskRuntime]) -> d
         await _progress(rt, done=1)
         return {"sufficient": False, "gap_queries": []}
     if not _enabled(rt, "verification"):
-        verdicts = [{"claim_id": c.id, "claim": c.statement, "verdict": "unverifiable",
-                     "confidence": 0.0, "importance": c.importance, "source_refs": c.source_refs,
-                     "reasoning": "Verification Agent disabled by configuration.",
-                     "supporting_refs": [], "conflicting_refs": []} for c in claims]
+        verdicts = _unverified(claims, "Verification Agent disabled by configuration.")
         await rt.store.save_verifications(rt.task_id, it, verdicts)
         await rt.emit("agent_skipped", "Verification Agent disabled — claims reported as unverified.",
                       {"agent": "verification"})
@@ -257,6 +274,15 @@ async def verify_node(state: AgentFlowState, runtime: Runtime[TaskRuntime]) -> d
         await _progress(rt, done=1)
         return {"budget_exhausted": True, "budget_note": str(exc), "sufficient": False,
                 "errors": [{"agent": "verification", "code": f"budget_{exc.limit}", "message": str(exc)}]}
+    except LLMError as exc:
+        code, msg = safe_error(exc)
+        verdicts = _unverified(claims, f"Verification Agent failed ({code}); claim not verified.")
+        await rt.store.save_verifications(rt.task_id, it, verdicts)
+        await rt.emit("agent_degraded", f"Verification Agent failed ({code}); all claims are "
+                      "reported as unverified.", {"agent": "verification", "error_code": code})
+        await _progress(rt, done=1)
+        return {"verdicts": verdicts, "sufficient": False, "gap_queries": [],
+                "errors": [{"agent": "verification", "code": code, "message": msg, "degraded": True}]}
     by_id = {c.id: c for c in claims}
     verdicts = [{**v.model_dump(), "claim": by_id[v.claim_id].statement,
                  "importance": by_id[v.claim_id].importance,
@@ -291,7 +317,22 @@ async def plan_gaps_node(state: AgentFlowState, runtime: Runtime[TaskRuntime]) -
         await rt.emit("iteration_limit", f"Maximum iterations ({rt.budget.limits.max_iterations}) "
                       "reached; proceeding to report with disclosed gaps.", {"iteration": it})
         return {"gap_queries": []}
-    queries = list(dict.fromkeys(q.strip() for q in state.get("gap_queries", []) if q.strip()))[:4]
+    executed = {_norm_query(q) for st in state.get("subtasks", {}).values()
+                for q in st.get("queries", [])}
+    queries: list[str] = []
+    for q in state.get("gap_queries", []):
+        key = _norm_query(q)
+        if key and key not in executed and key not in {_norm_query(x) for x in queries}:
+            queries.append(q.strip())
+    queries = queries[:4]
+    skipped = len([q for q in state.get("gap_queries", []) if q.strip()]) - len(queries)
+    if skipped > 0:
+        await rt.emit("gap_queries_deduplicated", f"Skipped {skipped} gap quer"
+                      f"{'y' if skipped == 1 else 'ies'} already researched.", {"skipped": skipped})
+    if not queries:
+        await rt.emit("iteration_skipped", "No new gap queries to research; proceeding to report "
+                      "with disclosed gaps.", {"iteration": it})
+        return {"gap_queries": []}
     subs = {f"g{it}-{i + 1}": {"id": f"g{it}-{i + 1}", "title": f"Gap research: {q[:80]}",
                                "description": "Additional research requested by the Verification Agent.",
                                "queries": [q], "depends_on": [], "expected_output": "Evidence for the gap",
@@ -304,6 +345,10 @@ async def plan_gaps_node(state: AgentFlowState, runtime: Runtime[TaskRuntime]) -
                   {"iteration": it, "queries": queries})
     await _stage(rt, "research", f"Additional research (iteration {it + 1}).")
     return {"iteration": it, "subtasks": subs, "gap_queries": []}
+
+
+def _norm_query(q: str) -> str:
+    return " ".join((q or "").lower().split())
 
 
 def route_after_gaps(state: AgentFlowState) -> str:
@@ -331,7 +376,9 @@ async def report_node(state: AgentFlowState, runtime: Runtime[TaskRuntime]) -> d
         "Models": "demo-template" if rt.is_demo else ", ".join(models),
     }
     gaps = list((state.get("analysis") or {}).get("gaps", []))
-    gaps += [f"Subtask failed: {e.get('subtask', e.get('agent'))} — {e.get('message')}"
+    gaps += [(f"Research subtask {e['subtask']} failed — {e.get('message')}" if e.get("subtask") else
+              f"{str(e.get('agent', 'An')).capitalize()} agent failed — {e.get('message')}"
+              + ("; its output was replaced by a degraded fallback." if e.get("degraded") else ""))
              for e in state.get("errors", [])]
     out = await run_agent(rt, ReportAgent(rt), lambda a: a.run(
         report_outline=(state.get("plan") or {}).get("report_outline", []), analysis=analysis,

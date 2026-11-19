@@ -7,7 +7,6 @@ state is checkpointed per task (thread_id = task id), so approval pauses survive
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
 import time
 from datetime import UTC, datetime, timedelta
@@ -52,7 +51,8 @@ class ExecutionManager:
         self.live_search = live_search
         self.pricing = pricing or PricingTable.load(settings.pricing_file)
         self._sem = asyncio.Semaphore(settings.max_concurrent_tasks)
-        self._running: dict[str, asyncio.Task] = {}
+        self._running: dict[str, asyncio.Task] = {}  # latest run per task
+        self._all: set[asyncio.Task] = set()          # every live run (for shutdown)
 
     # ------------------------------------------------------------------ public API
     def is_running(self, task_id: str) -> bool:
@@ -63,15 +63,8 @@ class ExecutionManager:
         self._launch(task_id, resume=None)
 
     async def resume(self, task_id: str, decision: dict) -> None:
-        handle = self._running.get(task_id)
-        if handle is not None and not handle.done():
-            # The paused run may still be unwinding right after its interrupt; give it a moment.
-            try:
-                await asyncio.wait_for(asyncio.shield(handle), timeout=15)
-            except (TimeoutError, asyncio.CancelledError, Exception):
-                pass
-            if self.is_running(task_id):
-                raise ConflictError("Task is already running.")
+        """Resume a paused run. Never blocks and never fails after a decision was recorded: if the
+        paused run is still unwinding (writing its checkpoint), the resumed run is chained behind it."""
         self._launch(task_id, resume=decision)
 
     async def cancel(self, task_id: str) -> None:
@@ -82,15 +75,10 @@ class ExecutionManager:
             raise ConflictError(f"Task already {task.status}.")
         handle = self._running.get(task_id)
         if handle and not handle.done():
-            if task.status == TaskStatus.AWAITING_APPROVAL:
-                # The run is unwinding after an interrupt; let it finish rather than cancelling
-                # it mid-cleanup, then cancel the paused task below.
-                with contextlib.suppress(asyncio.CancelledError, Exception):
-                    await asyncio.wait_for(asyncio.shield(handle), timeout=15)
-            else:
-                handle.cancel()
-                with contextlib.suppress(asyncio.CancelledError, Exception):
-                    await asyncio.wait_for(asyncio.shield(handle), timeout=10)
+            # Safe even while a paused run is unwinding: terminal states are write-once and an
+            # unwinding run never re-marks a task as awaiting approval once it has ended.
+            handle.cancel()
+            await asyncio.wait({handle}, timeout=10)
         # Whatever happened above, guarantee a terminal state (idempotent).
         task = await self.store.get_task(task_id)
         if task is not None and task.status not in TaskStatus.TERMINAL:
@@ -110,16 +98,33 @@ class ExecutionManager:
             return res.rowcount or 0
 
     async def shutdown(self) -> None:
-        for tid, t in list(self._running.items()):
+        handles = set(self._all)
+        for t in handles:
             if not t.done():
                 t.cancel()
-        await asyncio.gather(*self._running.values(), return_exceptions=True)
+        await asyncio.gather(*handles, return_exceptions=True)
 
     # ------------------------------------------------------------------ internals
     def _launch(self, task_id: str, resume: dict | None) -> None:
-        handle = asyncio.create_task(self._run(task_id, resume), name=f"agentflow-{task_id}")
+        prev = self._running.get(task_id)
+        handle = asyncio.create_task(self._run_after(prev, task_id, resume),
+                                     name=f"agentflow-{task_id}")
         self._running[task_id] = handle
-        handle.add_done_callback(lambda _: self._running.pop(task_id, None))
+        self._all.add(handle)
+
+        def _done(t: asyncio.Task) -> None:
+            self._all.discard(t)
+            if self._running.get(task_id) is t:
+                self._running.pop(task_id, None)
+
+        handle.add_done_callback(_done)
+
+    async def _run_after(self, prev: asyncio.Task | None, task_id: str, resume: dict | None) -> None:
+        """Serialise runs of one task: wait for the previous run (without inheriting its errors or
+        cancelling it), then run. Our own cancellation still propagates from `asyncio.wait`."""
+        if prev is not None and not prev.done():
+            await asyncio.wait({prev})
+        await self._run(task_id, resume)
 
     async def _build_runtime(self, task: Task) -> TaskRuntime:
         providers: ProviderSet = provider_set_for_mode(task.mode, self.settings, self.live_llms,
@@ -155,15 +160,18 @@ class ExecutionManager:
                            settings=self.settings, providers=providers, budget=budget,
                            agent_configs=configs, sources=sources, emit=emit, store=self.store,
                            execution_mode=task.execution_mode, approval_mode=task.approval_mode,
-                           extra={"bus": self.bus})
+                           extra={"bus": self.bus},
+                           search_slots=asyncio.Semaphore(
+                               1 if task.execution_mode == "sequential"
+                               else self.settings.max_parallel_searches))
 
     async def _run(self, task_id: str, resume: dict | None) -> None:
         started = time.monotonic()
         rt: TaskRuntime | None = None
         async with self._sem:
             task = await self.store.get_task(task_id)
-            if task is None:
-                return
+            if task is None or (resume is not None and task.status in TaskStatus.TERMINAL):
+                return  # e.g. cancelled while the paused run was still unwinding
             try:
                 rt = await self._build_runtime(task)
                 if resume is None:
@@ -202,8 +210,9 @@ class ExecutionManager:
 
     async def _handle_result(self, task_id: str, result: dict, rt: TaskRuntime) -> None:
         if result.get("__interrupt__"):
-            await self.store.update_task(task_id, status=TaskStatus.AWAITING_APPROVAL)
-            await self.bus.publish(task_id, "paused", "Waiting for human approval.", {})
+            # The decision may already be recorded (or the task cancelled) while this run unwound.
+            if await self.store.mark_awaiting_if_pending(task_id):
+                await self.bus.publish(task_id, "paused", "Waiting for human approval.", {})
             return
         if result.get("rejected"):
             await self._finish(task_id, TaskStatus.REJECTED, "rejected",
@@ -219,7 +228,8 @@ class ExecutionManager:
                       rt: TaskRuntime | None = None) -> None:
         values: dict[str, Any] = {"status": status, "error_code": code, "error_message": message,
                                   "finished_at": datetime.now(UTC), "current_stage": "finished"}
-        await self.store.update_task(task_id, **values)
+        if not await self.store.finish_task_if_active(task_id, **values):
+            return  # already terminal: exactly one terminal state and one task_finished event
         exec_status = "cancelled" if status == TaskStatus.CANCELLED else "aborted"
         await self.store.close_open_executions(
             task_id, exec_status, code or exec_status,

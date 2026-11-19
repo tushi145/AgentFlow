@@ -41,6 +41,39 @@ class ExecutionStore:
             await s.execute(update(Task).where(Task.id == task_id).values(**values))
             await s.commit()
 
+    async def mark_awaiting_if_pending(self, task_id: str) -> bool:
+        """Atomically set AWAITING_APPROVAL only if a decision is really still outstanding.
+
+        A paused run unwinds *after* its approval was requested; a decision may already have been
+        recorded (status RUNNING) or the task cancelled meanwhile. Never overwrite those.
+        """
+        from app.models.task import TaskStatus
+
+        async with db_write_lock(), session_factory()() as s:
+            task = await s.get(Task, task_id)
+            if task is None or task.status in TaskStatus.TERMINAL:
+                return False
+            pending = await s.scalar(select(func.count()).select_from(ApprovalRequest).where(
+                ApprovalRequest.task_id == task_id, ApprovalRequest.status == "pending"))
+            if not pending:
+                return False
+            task.status = TaskStatus.AWAITING_APPROVAL
+            await s.commit()
+            return True
+
+    async def finish_task_if_active(self, task_id: str, **values: Any) -> bool:
+        """Write a terminal state once. Returns False if the task already ended (idempotent)."""
+        from app.models.task import TaskStatus
+
+        async with db_write_lock(), session_factory()() as s:
+            task = await s.get(Task, task_id)
+            if task is None or task.status in TaskStatus.TERMINAL:
+                return False
+            for k, v in values.items():
+                setattr(task, k, v)
+            await s.commit()
+            return True
+
     async def add_progress(self, task_id: str, done: int = 0, total: int = 0) -> tuple[int, int]:
         async with db_write_lock(), session_factory()() as s:
             t = await s.get(Task, task_id)

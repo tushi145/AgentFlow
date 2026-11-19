@@ -66,6 +66,7 @@ class Settings(BaseSettings):
     default_max_iterations: int = Field(2, ge=1, le=5)
     max_total_tokens_ceiling: int = 2_000_000
     max_concurrent_tasks: int = Field(2, ge=1, le=16)
+    max_parallel_searches: int = Field(4, ge=1, le=16)  # per task, across research branches
 
     # Pricing / approvals
     pricing_file: Path | None = None

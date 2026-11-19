@@ -111,6 +111,9 @@ class TaskRuntime:
     execution_mode: str = "parallel"
     approval_mode: str = "none"
     extra: dict[str, Any] = field(default_factory=dict)
+    # Caps concurrent web searches across all parallel research branches of this task
+    # (protects provider rate limits).
+    search_slots: asyncio.Semaphore = field(default_factory=lambda: asyncio.Semaphore(4))
 
     @property
     def is_demo(self) -> bool:

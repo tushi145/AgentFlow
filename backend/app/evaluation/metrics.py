@@ -64,6 +64,7 @@ def compute_run_metrics(*, subtasks: dict[str, dict], facts: list[dict], verdict
         "reliability": {
             "agent_failures": len(agent_failures),
             "failures_by_agent": dict(Counter(f.get("agent", "?") for f in agent_failures)),
+            "degraded_agents": sorted({f.get("agent", "?") for f in agent_failures if f.get("degraded")}),
             "retries": retries,
         },
     }

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 
 from app.agents import prompts
@@ -82,19 +83,19 @@ class ResearchAgent(BaseAgent):
     async def _search_round(self, task: ResearchTask, queries: list[str],
                             failures: list[str]) -> list[SourceRecord]:
         limits = self.rt.budget.limits
-        hits: list[tuple[str, SearchHit]] = []
-        for q in queries:
-            await self.use_tool("web_search")
+        async def _one(q: str) -> list[tuple[str, SearchHit]]:
+            await self.use_tool("web_search")  # budget is reserved before the call (may raise)
             await self.emit("tool_call", f"Searching: {q}", tool="web_search", query=q,
                             subtask_id=task.subtask_id)
             try:
-                resp = await with_backoff(lambda q=q: self.rt.providers.search.search(q, max_results=5),
-                                          max_attempts=3)
+                async with self.rt.search_slots:  # bounded parallelism across all branches
+                    resp = await with_backoff(
+                        lambda: self.rt.providers.search.search(q, max_results=5), max_attempts=3)
             except LLMError as exc:
                 failures.append(f"search '{q[:60]}' failed ({exc.code})")
                 await self.emit("tool_error", f"Search failed: {exc}", tool="web_search",
                                 error_code=exc.code, subtask_id=task.subtask_id)
-                continue
+                return []
             cost = self.rt.budget.pricing.search_cost(resp.provider, resp.credits)
             await self.rt.budget.record_tool_cost(self.key, 0.0 if resp.is_demo else cost)
             if not resp.is_demo:
@@ -102,7 +103,15 @@ class ResearchAgent(BaseAgent):
             await self.emit("tool_result", f"{len(resp.hits)} result(s) for: {q}",
                             tool="web_search", query=q, count=len(resp.hits),
                             urls=[h.url for h in resp.hits], subtask_id=task.subtask_id)
-            hits += [(q, h) for h in resp.hits]
+            return [(q, h) for h in resp.hits]
+
+        # Queries of one subtask run concurrently (results kept in query order).
+        results = await asyncio.gather(*(_one(q) for q in queries), return_exceptions=True)
+        hits: list[tuple[str, SearchHit]] = []
+        for r in results:
+            if isinstance(r, BaseException):
+                raise r  # budget / permission errors are not per-query failures
+            hits += r
 
         # Keep the best unique URLs within the per-subtask page budget.
         seen: set[str] = set()
