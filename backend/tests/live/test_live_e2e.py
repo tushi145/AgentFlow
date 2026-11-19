@@ -58,5 +58,16 @@ async def test_live_research_task_end_to_end(tmp_path: Path) -> None:
             report = (await c.get(f"/api/v1/reports/{t['report_id']}")).json()
             assert "## References" in report["markdown"] and "DEMO" not in report["markdown"]
             ev = (await c.get(f"/api/v1/evaluations/tasks/{tid}")).json()["metrics"]
-            print("\nLIVE RUN METRICS:", ev["citation_integrity"], ev["source_coverage"],
-                  ev["verification"], f"cost=${t['cost_usd']}")
+            detail = (await c.get(f"/api/v1/tasks/{tid}")).json()
+            execs = detail["agent_executions"]
+            print("\nLIVE AGENT EXECUTIONS:")
+            for e in execs:
+                print(f"  {e['agent_key']:<12} {e['status']:<10} model={e.get('model')} "
+                      f"in={e.get('input_tokens')} out={e.get('output_tokens')} "
+                      f"cost=${e.get('cost_usd')} ms={e.get('duration_ms')}")
+            done = {e["agent_key"] for e in execs if e["status"] == "completed"}
+            assert done == {"planner", "research", "analysis", "verification", "report"}, done
+            assert all(e["mode"] == "live" for e in execs)
+            print("LIVE RUN METRICS:", ev["citation_integrity"], ev["source_coverage"],
+                  ev["verification"], ev.get("grounding"), ev.get("cost"),
+                  f"task cost=${t['cost_usd']}")

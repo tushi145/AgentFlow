@@ -67,7 +67,13 @@ class TavilySearch:
         except (tavily_errors.InvalidAPIKeyError, tavily_errors.MissingAPIKeyError) as exc:
             raise ToolError("Tavily rejected the API key.", code="search_auth_failed") from exc
         except tavily_errors.UsageLimitExceededError as exc:
-            raise ToolError("Tavily usage limit exceeded.", code="search_quota") from exc
+            # The SDK raises this for HTTP 429 (request-rate limit): transient, so retry.
+            raise ToolError("Tavily rate limit hit.", code="search_rate_limited",
+                            retryable=True, retry_after_s=5.0) from exc
+        except (tavily_errors.ForbiddenError, tavily_errors.TavilyKeylessLimitError) as exc:
+            # HTTP 403/432/433: plan or credit limit, or key not allowed. Retrying cannot help.
+            raise ToolError("Tavily refused the request (plan/credit limit or forbidden).",
+                            code="search_quota") from exc
         except tavily_errors.BadRequestError as exc:
             raise ToolError("Search request rejected.", code="search_bad_request") from exc
         except (tavily_errors.TimeoutError, TimeoutError) as exc:

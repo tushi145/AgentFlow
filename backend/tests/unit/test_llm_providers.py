@@ -25,15 +25,36 @@ def _req(**kw: object) -> LLMRequest:
     return LLMRequest(**base)  # type: ignore[arg-type]
 
 
+class _FakeRaw:
+    """Mimics the SDK's AsyncAPIResponse: `json()` is the wire body, `parse()` the typed object."""
+
+    def __init__(self, response):  # type: ignore[no-untyped-def]
+        self.response = response
+        self.request_id = getattr(response, "_request_id", None)
+
+    async def json(self) -> dict:
+        r = self.response
+        u = r.usage
+        return {"model": r.model, "stop_reason": r.stop_reason,
+                "stop_details": {"category": getattr(r.stop_details, "category", None)},
+                "usage": {"input_tokens": u.input_tokens, "output_tokens": u.output_tokens,
+                          "cache_read_input_tokens": u.cache_read_input_tokens},
+                "content": [{"type": b.type, "text": getattr(b, "text", "")} for b in r.content]}
+
+    async def parse(self):  # type: ignore[no-untyped-def]
+        return self.response
+
+
 class _FakeMessages:
     def __init__(self, response=None, exc=None):  # type: ignore[no-untyped-def]
         self.response, self.exc, self.kwargs = response, exc, None
+        self.with_raw_response = SimpleNamespace(parse=self._raw_parse)
 
-    async def parse(self, **kwargs):  # type: ignore[no-untyped-def]
+    async def _raw_parse(self, **kwargs):  # type: ignore[no-untyped-def]
         self.kwargs = kwargs
         if self.exc:
             raise self.exc
-        return self.response
+        return _FakeRaw(self.response)
 
 
 def _client(messages: _FakeMessages) -> SimpleNamespace:
@@ -50,7 +71,7 @@ def _resp(stop: str = "end_turn", parsed: BaseModel | None = Out(answer="42"), c
 async def test_anthropic_success_maps_usage_and_request_shape() -> None:
     msgs = _FakeMessages(_resp())
     p = AnthropicProvider("k", client=_client(msgs), enable_fallbacks=True)  # type: ignore[arg-type]
-    r = await p.generate(_req())
+    r = await p.generate(_req(model="claude-opus-5-5"))
     assert r.parsed == Out(answer="42") and r.model == "m-served"
     assert (r.usage.input_tokens, r.usage.output_tokens, r.usage.cache_read_tokens) == (120, 30, 5)
     # Untrusted/user content goes in messages; system stays separate; effort via output_config.

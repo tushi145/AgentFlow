@@ -74,11 +74,13 @@ class LLMError(Exception):
     """Base error. `retryable` drives the backoff policy; `code` is safe to surface."""
 
     def __init__(self, message: str, *, code: str = "llm_error", retryable: bool = False,
-                 usage: Usage | None = None) -> None:
+                 usage: Usage | None = None, retry_after_s: float | None = None) -> None:
         super().__init__(message)
         self.code = code
         self.retryable = retryable
         self.usage = usage or Usage()
+        # Server-requested wait (e.g. HTTP `retry-after`); honoured by the backoff policy.
+        self.retry_after_s = retry_after_s
 
 
 class LLMRefusalError(LLMError):

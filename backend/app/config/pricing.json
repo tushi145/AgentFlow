@@ -1,11 +1,12 @@
 {
-  "_comment": "USD per million tokens. Edit or point PRICING_FILE at your own copy. Models absent here report cost as null ('pricing not configured'). Anthropic rates: first-party API list prices as of 2026-10.",
+  "_comment": "USD per million tokens. Edit or point PRICING_FILE at your own copy. Models absent here report cost as null ('pricing not configured'). Anthropic rates: first-party API list prices as of 2026-10 (Haiku 5.5: prompts over 100K tokens bill at the long-context tier). Optional per-model keys: cache_read_per_mtok, long_context_threshold, long_input_per_mtok, long_output_per_mtok. Unknown cache-read pricing makes cost unknown, never zero.",
   "llm": {
     "anthropic": {
       "claude-fable-5-1":  {"input_per_mtok": 10.0, "output_per_mtok": 50.0, "cache_read_per_mtok": 0.25},
       "claude-opus-5-5":   {"input_per_mtok": 4.0,  "output_per_mtok": 20.0, "cache_read_per_mtok": 0.20},
       "claude-sonnet-5-5": {"input_per_mtok": 2.0,  "output_per_mtok": 10.0, "cache_read_per_mtok": 0.20},
-      "claude-haiku-5-5":  {"input_per_mtok": 0.10, "output_per_mtok": 0.50}
+      "claude-haiku-5-5":  {"input_per_mtok": 0.10, "output_per_mtok": 0.50,
+                            "long_context_threshold": 100000, "long_input_per_mtok": 0.50, "long_output_per_mtok": 2.50}
     },
     "gemini": {}
   },

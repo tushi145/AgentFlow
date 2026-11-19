@@ -16,6 +16,7 @@ from app.llm.retry import with_backoff
 from app.services.budget import estimate_tokens
 
 O = TypeVar("O", bound=BaseModel)
+MAX_RETRY_OUTPUT_TOKENS = 32_000  # non-streaming requests stay well under HTTP timeouts
 
 
 @dataclass
@@ -88,9 +89,14 @@ class BaseAgent:
         self.stats.provider, self.stats.model = provider.name, cfg.model
         self.stats.is_demo = provider.is_demo
 
-        for repair_round in range(2):  # original + one schema-repair attempt
+        want_out = cfg.max_output_tokens
+        repaired = widened = False
+        # Bounded: original + at most one schema repair + at most one truncation retry.
+        for _round in range(3):
             est_in = estimate_tokens(system) + sum(estimate_tokens(m.content) for m in messages)
-            granted = await self.rt.budget.reserve_llm_call(self.key, cfg.max_output_tokens, est_in)
+            priced = None if provider.is_demo else provider.name
+            granted = await self.rt.budget.reserve_llm_call(
+                self.key, want_out, est_in, provider=priced, model=cfg.model)
             self.stats.llm_calls += 1
             request = LLMRequest(model=cfg.model or "demo", system=system, messages=messages,
                                  output_model=output_model, max_output_tokens=granted,
@@ -108,9 +114,10 @@ class BaseAgent:
                 result = await with_backoff(lambda: provider.generate(request),
                                             max_attempts=cfg.max_retries + 1, on_retry=_on_retry)
             except LLMError as exc:
-                await self._account(provider.name, cfg.model, exc.usage, granted, est_in)
+                await self._account(provider.name, cfg.model, exc.usage, granted, est_in, priced)
                 if isinstance(exc, LLMOutputError) and exc.code == "invalid_output" \
-                        and repair_round == 0:
+                        and not repaired:
+                    repaired = True
                     self.stats.repairs += 1
                     await self.emit("repair", f"{self.spec.name}: output failed validation; "
                                     "requesting a corrected response.")
@@ -120,8 +127,18 @@ class BaseAgent:
                                            f"required schema: {str(exc)[:400]}. Respond again with "
                                            "valid structured output only.")]
                     continue
+                # Truncated (thinking + output exceeded max_tokens): retry once with a larger
+                # allowance, but only if the budget was not what limited it.
+                if exc.code == "truncated" and not widened and granted >= want_out \
+                        and want_out < MAX_RETRY_OUTPUT_TOKENS:
+                    widened = True
+                    want_out = min(want_out * 2, MAX_RETRY_OUTPUT_TOKENS)
+                    self.stats.repairs += 1
+                    await self.emit("repair", f"{self.spec.name}: output was truncated; retrying "
+                                    f"once with up to {want_out:,} output tokens.")
+                    continue
                 raise
-            await self._account(result.provider, result.model, result.usage, granted, est_in)
+            await self._account(result.provider, result.model, result.usage, granted, est_in, priced)
             self.stats.model = result.model
             if result.served_by_fallback:
                 self.stats.notes.append(f"served by fallback model {result.model}")
@@ -129,9 +146,10 @@ class BaseAgent:
         raise AssertionError("unreachable")  # pragma: no cover
 
     async def _account(self, provider: str, model: str | None, usage: Usage, granted: int,
-                       est_in: int) -> None:
-        cost = await self.rt.budget.record_llm_usage(self.key, provider, model or "", usage,
-                                                     granted, est_in)
+                       est_in: int, reserved_provider: str | None = None) -> None:
+        cost = await self.rt.budget.record_llm_usage(
+            self.key, provider, model or "", usage, granted, est_in,
+            reserved_provider=reserved_provider, reserved_model=self.config.model)
         self.stats.usage = self.stats.usage + usage
         if not self.stats.is_demo:
             self.stats.add_cost(cost)

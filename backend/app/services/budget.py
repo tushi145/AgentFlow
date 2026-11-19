@@ -54,12 +54,23 @@ class ModelPrice:
     input_per_mtok: float
     output_per_mtok: float
     cache_read_per_mtok: float | None = None
+    # Optional long-prompt tier (e.g. Haiku 5.5 bills prompts over 100K tokens at higher rates).
+    long_context_threshold: int | None = None
+    long_input_per_mtok: float | None = None
+    long_output_per_mtok: float | None = None
+
+    def rates(self, prompt_tokens: int) -> tuple[float, float]:
+        """(input, output) USD per million tokens for a prompt of this size."""
+        if (self.long_context_threshold is not None and prompt_tokens > self.long_context_threshold
+                and self.long_input_per_mtok is not None and self.long_output_per_mtok is not None):
+            return self.long_input_per_mtok, self.long_output_per_mtok
+        return self.input_per_mtok, self.output_per_mtok
 
 
 class PricingTable:
     def __init__(self, data: dict) -> None:
         self._llm: dict[str, dict[str, ModelPrice]] = {
-            prov: {m: ModelPrice(**p) for m, p in models.items()}
+            prov: {m: ModelPrice(**p) for m, p in models.items() if not m.startswith("_")}
             for prov, models in data.get("llm", {}).items()}
         self._search: dict[str, float] = {
             prov: float(cfg.get("usd_per_credit", 0)) for prov, cfg in data.get("search", {}).items()}
@@ -78,11 +89,22 @@ class PricingTable:
         p = self.price(provider, model)
         if p is None:
             return None
-        uncached_in = max(0, usage.input_tokens)
-        cost = uncached_in * p.input_per_mtok + usage.output_tokens * p.output_per_mtok
-        if usage.cache_read_tokens and p.cache_read_per_mtok is not None:
-            cost += usage.cache_read_tokens * p.cache_read_per_mtok
+        if usage.cache_read_tokens and p.cache_read_per_mtok is None:
+            return None  # cache-read price unknown: report unknown rather than undercount
+        in_rate, out_rate = p.rates(usage.input_tokens + usage.cache_read_tokens)
+        cost = max(0, usage.input_tokens) * in_rate + usage.output_tokens * out_rate
+        if usage.cache_read_tokens:
+            cost += usage.cache_read_tokens * (p.cache_read_per_mtok or 0.0)
         return round(cost / 1_000_000, 6)
+
+    def worst_case_cost(self, provider: str, model: str, input_tokens: int,
+                        output_tokens: int) -> float | None:
+        """Upper bound for one call (used to reserve budget before it is made)."""
+        p = self.price(provider, model)
+        if p is None:
+            return None
+        in_rate, out_rate = p.rates(input_tokens)
+        return (input_tokens * in_rate + output_tokens * out_rate) / 1_000_000
 
     def search_cost(self, provider: str, credits: float) -> float | None:
         rate = self._search.get(provider)
@@ -127,9 +149,16 @@ class BudgetGuard:
     FINAL_AGENT = "report"
 
     def __init__(self, limits: TaskLimits, pricing: PricingTable, *,
-                 final_reserve_tokens: int | None = None, final_reserve_calls: int = 1) -> None:
+                 final_reserve_tokens: int | None = None, final_reserve_calls: int = 1,
+                 final_reserve_cost_usd: float | None = None) -> None:
         self.limits = limits
         self.pricing = pricing
+        cap = limits.max_cost_usd
+        # Part of the cost cap is held back so the final report can still be written.
+        self.final_reserve_cost = (0.0 if cap is None else
+                                   min(cap * 0.3, final_reserve_cost_usd
+                                       if final_reserve_cost_usd is not None else cap * 0.2))
+        self._reserved_cost = 0.0
         self.final_reserve_tokens = (final_reserve_tokens if final_reserve_tokens is not None
                                      else min(30_000, limits.max_total_tokens // 5))
         self.final_reserve_calls = final_reserve_calls
@@ -162,8 +191,13 @@ class BudgetGuard:
 
     # -- LLM calls
     async def reserve_llm_call(self, agent: str, requested_max_output: int,
-                               est_input_tokens: int) -> int:
-        """Check limits before an LLM call; returns the clamped `max_output_tokens` to use."""
+                               est_input_tokens: int, *, provider: str | None = None,
+                               model: str | None = None) -> int:
+        """Check limits before an LLM call; returns the clamped `max_output_tokens` to use.
+
+        With a cost cap and a known (provider, model), the output allowance is also clamped so
+        the call's *worst-case* cost fits what is left of the cap (hard enforcement, not just a
+        check after the fact)."""
         async with self._lock:
             final = agent == self.FINAL_AGENT
             self._check_common(final=final)
@@ -178,14 +212,48 @@ class BudgetGuard:
                 raise BudgetExceeded("max_total_tokens",
                                      f"Token budget exhausted ({self.limits.max_total_tokens}).")
             granted = min(requested_max_output, remaining)
+            granted = self._clamp_to_cost(final, granted, est_input_tokens, provider, model)
             self._reserved_tokens += granted + est_input_tokens
+            self._reserved_cost += self._reservation_cost(granted, est_input_tokens, provider, model)
             self._agent(agent).llm_calls += 1
             return granted
 
+    def _cost_limit(self, final: bool) -> float | None:
+        cap = self.limits.max_cost_usd
+        return None if cap is None else cap - (0.0 if final else self.final_reserve_cost)
+
+    def _reservation_cost(self, out: int, inp: int, provider: str | None, model: str | None) -> float:
+        if self.limits.max_cost_usd is None or provider is None:
+            return 0.0
+        return self.pricing.worst_case_cost(provider, model or "", inp, out) or 0.0
+
+    def _clamp_to_cost(self, final: bool, granted: int, est_in: int, provider: str | None,
+                       model: str | None) -> int:
+        limit = self._cost_limit(final)
+        if limit is None or provider is None:
+            return granted
+        price = self.pricing.price(provider, model or "")
+        if price is None:
+            raise BudgetExceeded("max_cost_usd", "A cost limit is set but no pricing is configured "
+                                 f"for {provider}:{model}; the limit cannot be enforced.")
+        in_rate, out_rate = price.rates(est_in)
+        available = limit - self.cost_usd - self._reserved_cost - est_in * in_rate / 1_000_000
+        max_out = int(available * 1_000_000 / out_rate) if out_rate > 0 else granted
+        if max_out < 256:
+            raise BudgetExceeded("max_cost_usd",
+                                 f"Cost limit reached (${self.limits.max_cost_usd:.2f}).")
+        return min(granted, max_out)
+
     async def record_llm_usage(self, agent: str, provider: str, model: str, usage: Usage,
-                               reserved_output: int, est_input_tokens: int) -> float | None:
+                               reserved_output: int, est_input_tokens: int, *,
+                               reserved_provider: str | None = None,
+                               reserved_model: str | None = None) -> float | None:
+        """`reserved_provider/model` must match what was passed to `reserve_llm_call` (the served
+        model can differ, e.g. after a server-side fallback)."""
         async with self._lock:
             self._reserved_tokens = max(0, self._reserved_tokens - reserved_output - est_input_tokens)
+            self._reserved_cost = max(0.0, self._reserved_cost - self._reservation_cost(
+                reserved_output, est_input_tokens, reserved_provider, reserved_model))
             a = self._agent(agent)
             a.input_tokens += usage.input_tokens
             a.output_tokens += usage.output_tokens
@@ -224,7 +292,8 @@ class BudgetGuard:
         if self.elapsed_s() > self.limits.timeout_seconds * grace:
             raise BudgetExceeded("timeout_seconds",
                                  f"Execution time limit reached ({self.limits.timeout_seconds}s).")
-        if self.limits.max_cost_usd is not None and not final and                 self.cost_usd >= self.limits.max_cost_usd:
+        limit = self._cost_limit(final)
+        if limit is not None and self.cost_usd >= limit:
             raise BudgetExceeded("max_cost_usd",
                                  f"Cost limit reached (${self.limits.max_cost_usd:.2f}).")
 

@@ -27,7 +27,7 @@ from app.models.agent_config import AgentConfig
 from app.models.approval import ApprovalRequest
 from app.models.task import Task, TaskStatus
 from app.services.agent_config_service import resolve_effective
-from app.services.budget import BudgetGuard, PricingTable, TaskLimits
+from app.services.budget import DEFAULT_PROFILES, BudgetGuard, PricingTable, TaskLimits
 from app.services.db_lock import db_write_lock
 from app.services.events import TERMINAL_EVENT, EventBus
 from app.services.execution_store import ExecutionStore
@@ -147,7 +147,23 @@ class ExecutionManager:
                     log.warning("Model %s for %s could not be verified", cfg.model, cfg.key)
 
         limits = TaskLimits.model_validate(task.limits)
-        budget = BudgetGuard(limits, self.pricing)
+        final_reserve_cost = None
+        if task.mode == "live" and limits.max_cost_usd is not None:
+            # A cost cap must be enforceable: every enabled model and the search tool need prices.
+            unpriced = [f"{c.key} ({c.provider}:{c.model})" for c in configs.values()
+                        if c.enabled and self.pricing.price(c.provider, c.model or "") is None]
+            if self.pricing.search_cost(providers.search.name, 1.0) is None:
+                unpriced.append(f"web search ({providers.search.name})")
+            if unpriced:
+                raise AppError("A cost limit is set, but pricing is not configured for: "
+                               + ", ".join(unpriced) + ". Add them to the pricing file "
+                               "(PRICING_FILE) or remove the cost limit.",
+                               code="cost_limit_unenforceable")
+            rep = configs["report"]
+            p_in, p_out = DEFAULT_PROFILES["report"]
+            final_reserve_cost = self.pricing.worst_case_cost(rep.provider, rep.model or "",
+                                                              p_in, p_out)
+        budget = BudgetGuard(limits, self.pricing, final_reserve_cost_usd=final_reserve_cost)
         used_s = float((task.runtime_state or {}).get("active_seconds", 0.0))
         budget.restore(await self.store.per_agent_usage(task.id), elapsed_s=used_s)
         sources = SourceRegistry(persist=lambda rec: self.store.save_source(task.id, rec))
