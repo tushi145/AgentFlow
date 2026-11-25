@@ -22,6 +22,11 @@ def last_true(left: bool | None, right: bool | None) -> bool:
     return bool(left) or bool(right)
 
 
+def latest_note(left: str | None, right: str | None) -> str | None:
+    """Latest non-empty note wins; accepts concurrent writes from parallel branches."""
+    return right if right else left
+
+
 class AgentFlowState(TypedDict, total=False):
     objective: str
     plan: dict[str, Any] | None
@@ -38,7 +43,7 @@ class AgentFlowState(TypedDict, total=False):
     retrieval_method: str | None
     iteration: int
     budget_exhausted: Annotated[bool, last_true]
-    budget_note: str | None
+    budget_note: Annotated[str | None, latest_note]
     rejected: Annotated[bool, last_true]
     rejection_comment: str | None
     errors: Annotated[list[dict], operator.add]

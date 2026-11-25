@@ -86,3 +86,13 @@ def test_agent_model_override_is_read_from_env_file(tmp_path: Path) -> None:
     s = Settings(_env_file=env)
     assert resolve_effective(_row(key="report"), s).model == "claude-sonnet-5-5"
     assert resolve_effective(_row(key="planner"), s).model == "claude-opus-5-5"
+
+
+@pytest.mark.parametrize("secret", ["dev-insecure-secret-change-me-before-deploying-0000",
+                                    "change-me-to-a-long-random-string"])
+async def test_production_refuses_known_placeholder_jwt_secret(tmp_path: Path, secret: str) -> None:
+    from app.main import create_app
+    app = create_app(make_settings(tmp_path, app_env="production", jwt_secret=SecretStr(secret)))
+    with pytest.raises(RuntimeError, match="JWT_SECRET"):
+        async with app.router.lifespan_context(app):
+            pass

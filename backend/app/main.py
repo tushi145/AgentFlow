@@ -39,7 +39,9 @@ def create_app(settings: Settings | None = None, *,
     async def lifespan(app: FastAPI):  # type: ignore[no-untyped-def]
         configure_logging(settings.log_level)
         secret = settings.jwt_secret.get_secret_value()
-        if secret.startswith("dev-insecure"):
+        # Also reject the public .env.example placeholder: a copied example file must not
+        # leave sessions signed with a well-known secret.
+        if secret.startswith(("dev-insecure", "change-me")):
             if settings.app_env == "production":
                 raise RuntimeError("JWT_SECRET must be set in production.")
             log.warning("Using the built-in development JWT_SECRET; set JWT_SECRET in .env.")

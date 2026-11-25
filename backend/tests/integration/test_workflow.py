@@ -273,6 +273,18 @@ async def test_budget_exhaustion_still_produces_report(run) -> None:  # type: ig
     assert "budget" in (await rows(Report, tid))[0].markdown.lower() or task.budget_exhausted
 
 
+@pytest.mark.parametrize("mode", ["live", "demo"])
+async def test_budget_exhausted_in_parallel_branches_still_produces_report(run, mode) -> None:  # type: ignore[no-untyped-def]
+    """Regression: two parallel research branches hitting the limit in the same step both wrote
+    `budget_note`, which LangGraph rejected (InvalidUpdateError) and the whole task failed."""
+    await run.start(FakeLLM(Script(), models=[MODEL]), default_search())
+    tid = await run.submit(mode=mode, limits={"max_llm_calls": 2})
+    task = await wait_status(tid, {"completed", "failed"})
+    assert task.status == "completed", task.error_message
+    assert task.budget_exhausted and task.llm_calls <= 2
+    assert await rows(Report, tid)
+
+
 async def test_invalid_model_fails_fast(run) -> None:  # type: ignore[no-untyped-def]
     await run.start(FakeLLM(Script(), models=["some-other-model"]), default_search())
     tid = await run.submit()
