@@ -185,7 +185,12 @@ test("3C approve with comment, reject, cancel and responsive layout", async ({ p
   test.setTimeout(150_000);
   const errors: string[] = [];
   page.on("console", (m) => {
-    if (m.type() === "error" && !(m.text().includes("401") && m.location().url.endsWith("/api/v1/auth/me"))) errors.push(m.text());
+    if (m.type() !== "error") return;
+    if (m.text().includes("401") && m.location().url.endsWith("/api/v1/auth/me")) return;
+    // The deliberate "not found" visit below fires several parallel requests; their 404s may be
+    // logged after the page has already rendered, so they are excluded by URL, not by timing.
+    if (m.text().includes("404") && m.location().url.includes("/api/v1/tasks/does-not-exist")) return;
+    errors.push(m.text());
   });
   page.on("pageerror", (e) => errors.push(e.message));
   await page.setViewportSize({ width: 1440, height: 900 });

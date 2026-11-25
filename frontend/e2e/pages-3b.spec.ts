@@ -128,6 +128,13 @@ test("3B pages against the real backend", async ({ page }) => {
   await shot(page, "3b-overview-light");
 
   // --- Responsive: every 3B page at phone width, no horizontal overflow ---------------------
+  // Include a pending approval card with a long objective (it used to overflow by 8 px at 390 px).
+  const pending = await page.request.post("/api/v1/tasks", { data: {
+    prompt: `Mobile layout check ${stamp}: ${"a very long research objective that keeps going ".repeat(6)}`,
+    mode: "demo", approval_mode: "plan" } });
+  expect(pending.ok()).toBeTruthy();
+  const pendingId = ((await pending.json()) as { id: string }).id;
+  await waitForStatus(page, pendingId, ["awaiting_approval"]);
   await page.setViewportSize({ width: 390, height: 844 });
   for (const path of ["/", "/tasks/new", "/executions", "/history"]) {
     await page.goto(path);
@@ -136,5 +143,6 @@ test("3B pages against the real backend", async ({ page }) => {
     expect(overflow, `horizontal overflow on ${path}`).toBeLessThanOrEqual(0);
     await shot(page, `3b-mobile-${path === "/" ? "overview" : path.slice(1).replace("/", "-")}`);
   }
+  expect((await page.request.post(`/api/v1/tasks/${pendingId}/cancel`)).ok()).toBeTruthy();
   expect(errors, errors.join("\n")).toEqual([]);
 });
