@@ -20,7 +20,7 @@ browsing behind logins.
 ```
 ┌──────────────────────── Frontend (React 19 + Vite + TS) ─────────────────────────┐
 │ Overview · New Task · Active · History · Reports · Agents · Evaluation · Settings │
-│ TanStack Query (REST)     EventSource (SSE live stream)    Recharts   React Flow  │
+│ TanStack Query (REST)     EventSource (SSE live stream)    Recharts   CSS graph   │
 └───────────────┬───────────────────────────────┬──────────────────────────────────┘
                 │ REST /api/v1/*                │ SSE /api/v1/tasks/{id}/events
 ┌───────────────▼───────────────────────────────▼──────────────────────────────────┐

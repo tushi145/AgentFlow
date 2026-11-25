@@ -10,6 +10,24 @@
       API keys and approval to run paid tests (runbook: [phase4.md § Live verification runbook](phase4.md#live-verification-runbook))
 - [ ] Phase 5 – not started
 
+### Finalization (2026-11-25)
+Full offline re-verification, demo-mode user journey and security sweep. Two genuine bugs fixed, each
+with a regression test:
+- **Budget exhaustion in parallel branches crashed the task.** When two parallel Research branches hit a
+  limit in the same step, both wrote `budget_note` (a plain LangGraph channel) → `InvalidUpdateError` and the
+  task failed instead of producing a budget-limited report. `budget_note` now has a reducer
+  (`graph/state.py`); test: `test_budget_exhausted_in_parallel_branches_still_produces_report`.
+- **Production accepted the `.env.example` JWT placeholder.** Startup now also refuses
+  `change-me…` secrets when `APP_ENV=production`; test: `test_production_refuses_known_placeholder_jwt_secret`.
+- **Pending-approval card overflowed on phones.** On Active Executions at 390 px the card was 8 px wider
+  than the screen (a grid item can't shrink below its nowrap content). Fixed with `min-w-0`; the 3B
+  Playwright responsive check now creates a pending approval so it covers this case.
+- E2E: the 3C spec's expected "not found" 404s are now excluded by URL instead of by timing (it raced
+  when a sibling request logged its 404 late).
+- Docs: README rewritten; stale references removed (docker compose, React Flow).
+
+Live credentialed verification is still pending (no API keys in this environment).
+
 ### Live verification status
 | Check | Status |
 |---|---|
