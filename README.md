@@ -353,7 +353,7 @@ with `--repeat-each` in parallel (copies of the same spec delete each other's ta
 ## Security and cost controls
 
 - **Auth:** single local admin; HTTP-only signed session cookie; login rate-limited (10/min); every API
-  route except health requires a session. Production refuses default/placeholder secrets and a plain-text
+  route except health, login and logout requires a session. Production refuses default/placeholder secrets and a plain-text
   admin password.
 - **Secrets:** API keys are `SecretStr`, redacted from logs, errors, events and tracebacks, and only
   reported by the API as "configured". `.env` is git-ignored.
@@ -389,6 +389,7 @@ with `--repeat-each` in parallel (copies of the same spec delete each other's ta
 
 ## Documentation
 
+- **[Final project report](docs/AgentFlow_Final_Project_Report.md)**: full write-up with test evidence and screenshots
 - [Architecture and design decisions](docs/architecture.md)
 - [Roadmap and phase notes](docs/roadmap.md)
 - [Phase 4: advanced AI capabilities, results, live verification runbook](docs/phase4.md)
